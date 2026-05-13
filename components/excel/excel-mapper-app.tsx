@@ -17,6 +17,7 @@ import type { InvokeAgentResponse, SavedPrompt, UploadedWorkbook } from "@/lib/t
 import { estimatedBase64Size, formatBytes } from "@/lib/utils";
 
 const API_KEY_STORAGE_KEY = "excel-mapper.syntax-api-key";
+const SESSION_ID_STORAGE_KEY = "excel-mapper.session-id";
 const PROMPT_PLACEHOLDER =
   "Take the customer data from Source.xlsx sheet 'Customers' columns A-E and map them to the template's 'Migration Input' sheet starting row 5. Map source A to target C, source B to target D, source C to target F, and convert country names to ISO-2 codes before writing them.";
 
@@ -45,15 +46,15 @@ function ExcelMapperContent() {
   });
 
   React.useEffect(() => {
-    setSessionId(crypto.randomUUID());
-    setApiKey(window.localStorage.getItem(API_KEY_STORAGE_KEY) ?? "");
+    const storedSessionId = window.localStorage.getItem(SESSION_ID_STORAGE_KEY);
+    const nextSessionId = storedSessionId || createSessionId();
+    window.localStorage.setItem(SESSION_ID_STORAGE_KEY, nextSessionId);
+    setSessionId(nextSessionId);
   }, []);
 
   React.useEffect(() => {
-    if (apiKey) {
-      window.localStorage.setItem(API_KEY_STORAGE_KEY, apiKey);
-    }
-  }, [apiKey]);
+    setApiKey(window.localStorage.getItem(API_KEY_STORAGE_KEY) ?? "");
+  }, []);
 
   const totalRawBytes = [...templateFiles, ...sourceFiles].reduce((sum, uploaded) => sum + uploaded.file.size, 0);
   const estimatedRequestBytes = [...templateFiles, ...sourceFiles].reduce(
@@ -107,8 +108,15 @@ function ExcelMapperContent() {
     toast({ title: "API key forgotten" });
   }, [toast]);
 
+  const updateApiKey = React.useCallback((value: string) => {
+    setApiKey(value);
+    window.localStorage.setItem(API_KEY_STORAGE_KEY, value);
+  }, []);
+
   const regenerateSession = React.useCallback(() => {
-    setSessionId(crypto.randomUUID());
+    const nextSessionId = createSessionId();
+    window.localStorage.setItem(SESSION_ID_STORAGE_KEY, nextSessionId);
+    setSessionId(nextSessionId);
     toast({ title: "Session regenerated" });
   }, [toast]);
 
@@ -156,7 +164,12 @@ function ExcelMapperContent() {
     sourceFiles.forEach((source) => formData.append("sources", source.file));
     formData.append("prompt", trimmedPrompt);
     formData.append("apiKey", apiKey.trim());
-    formData.append("sessionId", sessionId || crypto.randomUUID());
+    const requestSessionId = sessionId || createSessionId();
+    if (!sessionId) {
+      setSessionId(requestSessionId);
+      window.localStorage.setItem(SESSION_ID_STORAGE_KEY, requestSessionId);
+    }
+    formData.append("sessionId", requestSessionId);
 
     try {
       const response = await fetch("/api/invoke-agent", {
@@ -313,7 +326,7 @@ function ExcelMapperContent() {
                     id="api-key"
                     type="password"
                     value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
+                    onChange={(event) => updateApiKey(event.target.value)}
                     placeholder="Syntax GenAI Studio API key"
                     className="pl-9"
                   />
@@ -376,7 +389,7 @@ async function buildUploadedWorkbook(file: File | undefined): Promise<UploadedWo
   }
 
   return {
-    id: crypto.randomUUID(),
+    id: createSessionId(),
     file,
     preview: await parseWorkbook(file)
   };
@@ -389,3 +402,24 @@ function getErrorMessage(error: unknown) {
 // Future saved-prompt feature: keep the shape close to the app's eventual
 // persistence API so prompt-library work can drop in without changing the page.
 export type SavedPromptDraft = Omit<SavedPrompt, "id" | "updatedAt">;
+
+function createSessionId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}

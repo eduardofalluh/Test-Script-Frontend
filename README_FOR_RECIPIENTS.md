@@ -6,7 +6,7 @@ Excel Mapper runs locally on your computer and sends uploaded files to Syntax Ge
 
 Install Node.js LTS from https://nodejs.org.
 
-You also need a Syntax GenAI Studio API key. Paste it into the app when it opens.
+You also need a Syntax GenAI Studio API key. Paste it into the app when it opens. The key is saved locally in your browser on your computer, so it stays after refreshes. Use **Forget** in the app if you want to remove it.
 
 ## Start On Mac
 
