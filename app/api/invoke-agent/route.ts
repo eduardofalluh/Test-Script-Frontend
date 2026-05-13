@@ -88,7 +88,7 @@ export async function POST(request: Request) {
     ];
 
     const response = await fetchWithTimeout(
-      AGENT_ENDPOINT,
+      getAgentEndpoint(),
       {
         method: "POST",
         headers: {
@@ -134,6 +134,12 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function getAgentEndpoint() {
+  // Test and self-hosted deployments can override the endpoint without
+  // changing the production default requested for Test Script IQ.
+  return process.env.SYNTAX_AGENT_ENDPOINT || AGENT_ENDPOINT;
 }
 
 function badRequest(error: string) {

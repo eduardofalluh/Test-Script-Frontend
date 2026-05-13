@@ -303,6 +303,7 @@ function ExcelMapperContent() {
         </CardHeader>
         <CardContent className="space-y-5">
           <Textarea
+            aria-label="Mapping Prompt"
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={handlePromptKeyDown}

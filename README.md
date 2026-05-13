@@ -71,6 +71,16 @@ https://studio-api.ai.syntax-rnd.com/api/v1/agents/6d310742-9d0a-4069-8689-6c8fe
 5. If a workbook is found, the browser opens an Easy View with sheet switching, editable cells, and an edited-file download. Otherwise, the full agent text response remains visible for diagnosis.
 6. Use the AI Modify tab to describe follow-up changes. The app re-runs the agent with the original files, the original prompt, the revision request, and the prior agent response as context.
 
+## Test Like A User
+
+Run the browser E2E test:
+
+```bash
+npm run test:e2e
+```
+
+The test creates complex mock Excel files, starts a local mock Syntax agent, uploads the files through the UI, submits the mapping prompt, verifies the generated workbook Easy View, edits a result cell, checks API-key/session persistence after refresh, and exercises the AI Modify flow. The test uses `SYNTAX_AGENT_ENDPOINT` to avoid calling the real external agent.
+
 ## Deploy
 
 ### Vercel
@@ -116,6 +126,7 @@ npm run clean
 npm run dev
 npm run dev:local
 npm run package:release
+npm run test:e2e
 npm run lint
 npm run typecheck
 npm run build
