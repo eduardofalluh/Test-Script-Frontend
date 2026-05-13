@@ -5,7 +5,10 @@
   "scripts": {
     "clean": "node scripts/clean-next.mjs",
     "predev": "node scripts/clean-next.mjs",
+    "predev:local": "node scripts/clean-next.mjs",
     "dev": "next dev",
+    "dev:local": "next dev -p 3010",
+    "package:release": "node scripts/package-release.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

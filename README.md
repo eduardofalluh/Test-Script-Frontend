@@ -29,6 +29,29 @@ Open http://localhost:3000.
 
 `npm run dev` clears stale `.next` output before starting. This keeps local styles from disappearing if a production build was run before restarting the development server.
 
+For a predictable shareable local trial, use:
+
+```bash
+npm run dev:local
+```
+
+Open http://localhost:3010.
+
+## Share With Testers
+
+Create a local trial package:
+
+```bash
+npm run package:release
+```
+
+This creates `release/excel-mapper-local.zip` and a matching unpacked folder. Send the `.zip` file to testers. They should unzip it, install Node.js LTS from https://nodejs.org, then double-click one of these starter files:
+
+- `START_EXCEL_MAPPER_MAC.command`
+- `START_EXCEL_MAPPER_WINDOWS.bat`
+
+The first run installs dependencies, then opens http://localhost:3010.
+
 ## API Key
 
 Paste your Syntax GenAI Studio API key into the password field in the app. It is stored only in your browser's `localStorage` and sent to the local `/api/invoke-agent` proxy for each request. Use **Forget** to remove it from `localStorage`.
@@ -91,6 +114,8 @@ The current constants live in `lib/constants.ts`:
 ```bash
 npm run clean
 npm run dev
+npm run dev:local
+npm run package:release
 npm run lint
 npm run typecheck
 npm run build
