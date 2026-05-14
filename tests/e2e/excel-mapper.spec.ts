@@ -43,7 +43,12 @@ test.afterAll(async () => {
   });
 });
 
-test("uploads complex Excel files, invokes mock agent, edits result, and persists local credentials", async ({
+test.beforeEach(() => {
+  invocationCount = 0;
+  latestAgentRequest = null;
+});
+
+test("uploads complex Excel files, maps deterministically, edits result, and keeps AI fallback available", async ({
   page
 }, testInfo) => {
   const templatePath = testInfo.outputPath("Target_Template.xlsx");
@@ -77,32 +82,70 @@ test("uploads complex Excel files, invokes mock agent, edits result, and persist
 
   await page.getByLabel("Mapping Prompt").fill(
     [
-      "Map Complex_Source_Data.xlsx sheet Customers rows into Target_Template.xlsx sheet Migration Input starting row 5.",
-      "Use Customer ID, Name, Country, Currency, Risk Score, and Contact Email.",
-      "Also summarize Orders and Region Mapping sheets in the validation output."
+      "Map Complex_Source_Data.xlsx source sheet 'Customers' rows into Target_Template.xlsx target sheet 'Migration Input' starting row 5.",
+      "Map A->A, B->C, C->D, D->E, E->F, F->G.",
+      "Convert country names to ISO-2 codes."
     ].join(" ")
   );
-  await page.getByRole("button", { name: "Generate Populated File" }).click();
+  await page.getByRole("button", { name: "Run Deterministic Mapping" }).click();
 
   await expect(page.getByText("Success")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Easy View" })).toHaveAttribute("data-state", "active");
   await expect(page.getByRole("tab", { name: "Migration Input" })).toBeVisible();
   await expect(page.locator('input[value="CUST-001"]')).toBeVisible();
+  await expect(page.locator('input[value="CA"]')).toBeVisible();
+  expect(invocationCount).toBe(0);
 
   const editableCustomerName = page.getByLabel("Migration Input C5");
   await editableCustomerName.fill("Acme Canada Edited");
   await expect(page.getByText("Unsaved edits")).toBeVisible();
   await expect(page.getByRole("button", { name: "Download Edited File" })).toBeVisible();
 
-  await page.getByRole("tab", { name: "AI Modify" }).click();
-  await page.getByLabel("Tell the agent what to change").fill("Change country values to ISO-2 codes and keep edited customer names.");
-  await page.getByRole("button", { name: "Ask AI to Revise" }).click();
-  await page.getByRole("tab", { name: "Agent Response" }).click();
-  await expect(page.getByText("Mock Test Script IQ response 2")).toBeVisible();
+  await page.getByRole("button", { name: "External AI Agent" }).click();
+  await page.getByRole("button", { name: "Generate With AI Agent" }).click();
+  await page.getByRole("tab", { name: "Run Response" }).click();
+  await expect(page.getByText("Mock Test Script IQ response 1")).toBeVisible();
 
-  expect(invocationCount).toBe(2);
-  expect(JSON.stringify(latestAgentRequest)).toContain("Revision request for the generated workbook");
+  expect(invocationCount).toBe(1);
   expect(JSON.stringify(latestAgentRequest)).toContain("data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,");
+});
+
+test("maps a larger multi-sheet workbook with header inference and no API key", async ({ page }, testInfo) => {
+  const templatePath = testInfo.outputPath("Large_Target_Template.xlsx");
+  const sourcePath = testInfo.outputPath("Large_Source_Data.xlsx");
+  mkdirSync(dirname(templatePath), { recursive: true });
+  writeFileSync(templatePath, createTemplateWorkbookBuffer());
+  writeFileSync(sourcePath, createLargeSourceWorkbookBuffer(80));
+
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Excel Mapper" })).toBeVisible();
+  await expect(page.getByLabel("API Key")).toHaveValue("");
+
+  const fileInputs = page.locator("input[type=file]");
+  await fileInputs.nth(0).setInputFiles(templatePath);
+  await fileInputs.nth(1).setInputFiles(sourcePath);
+
+  await page.getByLabel("Mapping Prompt").fill(
+    [
+      "Map source sheet 'Customers' into target sheet 'Migration Input' starting row 5.",
+      "Use matching source and target headers, include source row and validation notes, and convert country names to ISO-2 codes."
+    ].join(" ")
+  );
+  await page.getByRole("button", { name: "Run Deterministic Mapping" }).click();
+
+  await expect(page.getByText("Success")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Migration Input" })).toBeVisible();
+  await expect(page.locator('input[value="CUST-001"]')).toBeVisible();
+  await expect(page.locator('input[value="CUST-042"]')).toBeVisible();
+  await expect(page.locator('input[value="Customer 42"]')).toBeVisible();
+  await expect(page.getByLabel("Migration Input D46")).toHaveValue("SE");
+  await expect(page.locator('input[value="Mapped deterministically"]').first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download File" })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Run Response" }).click();
+  await expect(page.getByText("Rows mapped: 80")).toBeVisible();
+  await expect(page.getByText("Deterministic mapper completed without using the external AI agent.")).toBeVisible();
+  expect(invocationCount).toBe(0);
 });
 
 function createTemplateWorkbookBuffer() {
@@ -161,6 +204,56 @@ function createComplexSourceWorkbookBuffer() {
     ]),
     "Region Mapping"
   );
+  return XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer;
+}
+
+function createLargeSourceWorkbookBuffer(rowCount: number) {
+  const workbook = XLSX.utils.book_new();
+  const countries = [
+    ["Canada", "CAD"],
+    ["Sweden", "SEK"],
+    ["Brazil", "BRL"],
+    ["United States", "USD"],
+    ["Germany", "EUR"]
+  ];
+  const customers = [["Customer ID", "Name", "Country", "Currency", "Risk Score", "Contact Email", "Created On"]];
+
+  for (let index = 1; index <= rowCount; index += 1) {
+    const [country, currency] = countries[(index - 1) % countries.length];
+    customers.push([
+      `CUST-${String(index).padStart(3, "0")}`,
+      `Customer ${index}`,
+      country,
+      currency,
+      String((index * 7) % 100),
+      `customer${index}@example.com`,
+      `2026-03-${String((index % 28) + 1).padStart(2, "0")}`
+    ]);
+  }
+
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(customers), "Customers");
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet([
+      ["Sales Org", "Country", "Company Code"],
+      ["CA01", "Canada", "1000"],
+      ["SE01", "Sweden", "2000"],
+      ["BR01", "Brazil", "3000"],
+      ["US01", "United States", "4000"],
+      ["DE01", "Germany", "5000"]
+    ]),
+    "Reference Data"
+  );
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet([
+      ["Ignored ID", "Description"],
+      ["X-001", "This sheet should not be mapped"],
+      ["X-002", "Prompt selects Customers explicitly"]
+    ]),
+    "Ignore Me"
+  );
+
   return XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer;
 }
 

@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 export type ResultState = {
   status: "idle" | "processing" | "success" | "error";
   responseText: string;
+  statusMessage?: string;
   rawResponse?: unknown;
   file: AgentFilePayload | null;
   preview: WorkbookPreview | null;
@@ -52,7 +53,7 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Result</CardTitle>
-            <CardDescription>Review, edit, download, or ask AI to revise the generated workbook.</CardDescription>
+            <CardDescription>Review, edit, download, or revise the generated workbook.</CardDescription>
           </div>
           <StatusPill status={result.status} />
         </div>
@@ -61,7 +62,7 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
         {result.status === "processing" ? (
           <div className="mb-4 flex items-center gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            Processing request with Test Script IQ...
+            {result.statusMessage ?? "Processing request..."}
           </div>
         ) : null}
 
@@ -86,8 +87,8 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
           <TabsList>
             <TabsTrigger value="workbook">Easy View</TabsTrigger>
             <TabsTrigger value="preview">Preview</TabsTrigger>
-            <TabsTrigger value="ai">AI Modify</TabsTrigger>
-            <TabsTrigger value="response">Agent Response</TabsTrigger>
+            <TabsTrigger value="ai">Revise</TabsTrigger>
+            <TabsTrigger value="response">Run Response</TabsTrigger>
             <TabsTrigger value="download">Download</TabsTrigger>
           </TabsList>
           <TabsContent value="workbook">
@@ -124,7 +125,7 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
               ) : null}
               <div className="space-y-2">
                 <label htmlFor="ai-refinement" className="text-sm font-medium">
-                  Tell the agent what to change
+                  Tell Excel Mapper what to change
                 </label>
                 <Textarea
                   id="ai-refinement"
@@ -144,7 +145,7 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
                   }}
                 >
                   <WandSparkles className="h-4 w-4" />
-                  Ask AI to Revise
+                  Apply Revision
                 </Button>
               </div>
             </div>
@@ -170,7 +171,7 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
               </a>
             ) : (
               <div className="rounded-md border border-dashed border-border p-6 text-sm text-muted-foreground">
-                The response did not include a downloadable .xlsx file. Use the Agent Response tab to inspect what came back.
+                The response did not include a downloadable .xlsx file. Use the Run Response tab to inspect what came back.
               </div>
             )}
           </TabsContent>

@@ -1,12 +1,12 @@
 # Excel Mapper Local Trial
 
-Excel Mapper runs locally on your computer and sends uploaded files to Syntax GenAI Studio only when you click **Generate Populated File**.
+Excel Mapper runs locally on your computer. By default it uses deterministic coded mapping logic and does not send uploaded files to Syntax GenAI Studio.
 
 ## Before You Start
 
 Install Node.js LTS from https://nodejs.org.
 
-You also need a Syntax GenAI Studio API key. Paste it into the app when it opens. The key is saved locally in your browser on your computer, so it stays after refreshes. Use **Forget** in the app if you want to remove it.
+You only need a Syntax GenAI Studio API key if you choose **External AI Agent** mode. Paste it into the app when it opens. The key is saved locally in your browser on your computer, so it stays after refreshes. Use **Forget** in the app if you want to remove it.
 
 ## Start On Mac
 
@@ -42,6 +42,6 @@ The first run installs dependencies with `npm install`, so it can take a few min
 
 ## Privacy Note
 
-Files stay on your computer until you click **Generate Populated File**. At that point the app sends the uploaded workbooks and prompt to Syntax GenAI Studio for processing.
+Files stay on your computer when using the default **Deterministic Mapper** mode. If you choose **External AI Agent** mode, the app sends the uploaded workbooks and prompt to Syntax GenAI Studio for processing.
 
 Do not upload client-confidential files unless you are authorized to send them to Syntax GenAI Studio.
