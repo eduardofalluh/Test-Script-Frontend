@@ -25,12 +25,18 @@ export type ResultState = {
 type ResultPanelProps = {
   result: ResultState;
   onCopy: () => void;
-  onRefine: (instruction: string) => void;
+  onRefine: (instruction: string, editedBase64: string | null) => void;
 };
 
 export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
   const [refinement, setRefinement] = React.useState("");
   const [hasManualEdits, setHasManualEdits] = React.useState(false);
+  const [editedBase64, setEditedBase64] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setEditedBase64(null);
+    setHasManualEdits(false);
+  }, [result.file?.base64]);
 
   if (result.status === "idle") {
     return null;
@@ -86,7 +92,7 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
           </TabsList>
           <TabsContent value="workbook">
             {result.file ? (
-              <GeneratedWorkbookEditor file={result.file} onDirtyChange={setHasManualEdits} />
+              <GeneratedWorkbookEditor file={result.file} onDirtyChange={setHasManualEdits} onEditedFileChange={setEditedBase64} />
             ) : (
               <div className="rounded-md border border-dashed border-border p-6 text-sm text-muted-foreground">
                 No generated workbook was detected. The agent response is still available in the Agent Response tab.
@@ -112,7 +118,7 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
               {hasManualEdits ? (
                 <Alert>
                   <AlertDescription>
-                    Manual edits in Easy View are available for download, but AI revision currently re-runs against the uploaded template and source files.
+                    You have manual edits in Easy View. The AI revision will use your edited workbook as the starting point.
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -133,7 +139,7 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
                   type="button"
                   disabled={result.status === "processing" || refinement.trim().length === 0}
                   onClick={() => {
-                    onRefine(refinement);
+                    onRefine(refinement, editedBase64);
                     setRefinement("");
                   }}
                 >

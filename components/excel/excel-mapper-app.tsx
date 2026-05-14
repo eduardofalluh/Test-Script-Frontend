@@ -130,7 +130,7 @@ function ExcelMapperContent() {
     toast({ title: "Generation canceled" });
   }, [abortController, toast]);
 
-  const submit = React.useCallback(async (overridePrompt?: string) => {
+  const submit = React.useCallback(async (overridePrompt?: string, overrideTemplate?: File) => {
     if (result.status === "processing") {
       return;
     }
@@ -160,7 +160,7 @@ function ExcelMapperContent() {
     toast({ title: "Generation started", description: "Sending files and prompt to Test Script IQ." });
 
     const formData = new FormData();
-    formData.append("template", templateFiles[0].file);
+    formData.append("template", overrideTemplate ?? templateFiles[0].file);
     sourceFiles.forEach((source) => formData.append("sources", source.file));
     formData.append("prompt", trimmedPrompt);
     formData.append("apiKey", apiKey.trim());
@@ -220,11 +220,13 @@ function ExcelMapperContent() {
   }, [apiKey, prompt, result.status, sessionId, sourceFiles, templateFiles, toast]);
 
   const refineWithAi = React.useCallback(
-    (instruction: string) => {
+    (instruction: string, editedBase64: string | null) => {
       const trimmedInstruction = instruction.trim();
       if (!trimmedInstruction) {
         return;
       }
+
+      const usingEditedFile = editedBase64 !== null && result.file !== null;
 
       const revisedPrompt = [
         prompt.trim(),
@@ -232,16 +234,25 @@ function ExcelMapperContent() {
         "Revision request for the generated workbook:",
         trimmedInstruction,
         "",
-        "Use the original template and source files again. Preserve any correct mappings from the previous run and only change what is needed.",
+        usingEditedFile
+          ? "The template provided is the manually edited version from the previous run. Preserve any correct mappings and only change what is needed."
+          : "Use the original template and source files again. Preserve any correct mappings from the previous run and only change what is needed.",
         result.responseText ? `Previous agent response:\n${result.responseText}` : ""
       ]
         .filter(Boolean)
         .join("\n");
 
       setPrompt(revisedPrompt);
-      void submit(revisedPrompt);
+
+      if (usingEditedFile && result.file) {
+        const bytes = Uint8Array.from(atob(editedBase64), (c) => c.charCodeAt(0));
+        const overrideTemplate = new File([bytes], result.file.filename, { type: result.file.mimeType });
+        void submit(revisedPrompt, overrideTemplate);
+      } else {
+        void submit(revisedPrompt);
+      }
     },
-    [prompt, result.responseText, submit]
+    [prompt, result.file, result.responseText, submit]
   );
 
   const handlePromptKeyDown = React.useCallback(

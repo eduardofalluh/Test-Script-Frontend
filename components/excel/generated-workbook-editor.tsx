@@ -12,12 +12,13 @@ import type { AgentFilePayload, EditableWorkbook } from "@/lib/types";
 type GeneratedWorkbookEditorProps = {
   file: AgentFilePayload;
   onDirtyChange?: (isDirty: boolean) => void;
+  onEditedFileChange?: (base64: string) => void;
 };
 
 const MIN_VISIBLE_ROWS = 30;
 const MIN_VISIBLE_COLUMNS = 12;
 
-export function GeneratedWorkbookEditor({ file, onDirtyChange }: GeneratedWorkbookEditorProps) {
+export function GeneratedWorkbookEditor({ file, onDirtyChange, onEditedFileChange }: GeneratedWorkbookEditorProps) {
   const [workbook, setWorkbook] = React.useState<EditableWorkbook>(() => normalizeWorkbook(parseEditableWorkbookFromBase64(file.base64)));
   const [editedBase64, setEditedBase64] = React.useState(file.base64);
   const [isDirty, setIsDirty] = React.useState(false);
@@ -28,6 +29,10 @@ export function GeneratedWorkbookEditor({ file, onDirtyChange }: GeneratedWorkbo
     setIsDirty(false);
     onDirtyChange?.(false);
   }, [file.base64, onDirtyChange]);
+
+  React.useEffect(() => {
+    onEditedFileChange?.(editedBase64);
+  }, [editedBase64, onEditedFileChange]);
 
   const activeSheet = workbook.sheets.find((sheet) => sheet.name === workbook.activeSheetName) ?? workbook.sheets[0];
 
