@@ -21,6 +21,34 @@ test.beforeAll(async () => {
     const body = await readRequestBody(request);
     latestAgentRequest = JSON.parse(body);
     invocationCount += 1;
+    const requestText = JSON.stringify(latestAgentRequest);
+
+    if (requestText.includes("You are a mapping planner")) {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(
+        JSON.stringify({
+          message: JSON.stringify({
+            sourceSheetName: "Customers",
+            targetSheetName: "Migration Input",
+            targetStartRow: 5,
+            mappings: [
+              { sourceHeader: "Customer ID", targetHeader: "Legacy ID" },
+              { generated: "source-row", targetHeader: "Source Row" },
+              { sourceHeader: "Name", targetHeader: "Customer Name" },
+              { sourceHeader: "Country", targetHeader: "Country" },
+              { sourceHeader: "Currency", targetHeader: "Currency" },
+              { sourceHeader: "Risk Score", targetHeader: "Risk Score" },
+              { sourceHeader: "Contact Email", targetHeader: "Email" },
+              { generated: "validation-note", targetHeader: "Validation Notes" }
+            ],
+            transformations: {
+              convertCountryToIso2: true
+            }
+          })
+        })
+      );
+      return;
+    }
 
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(
@@ -108,6 +136,39 @@ test("uploads complex Excel files, maps deterministically, edits result, and kee
 
   expect(invocationCount).toBe(1);
   expect(JSON.stringify(latestAgentRequest)).toContain("data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,");
+});
+
+test("uses LLM only to plan mappings, then executes Excel writes deterministically", async ({ page }, testInfo) => {
+  const templatePath = testInfo.outputPath("Planner_Target_Template.xlsx");
+  const sourcePath = testInfo.outputPath("Planner_Source_Data.xlsx");
+  mkdirSync(dirname(templatePath), { recursive: true });
+  writeFileSync(templatePath, createTemplateWorkbookBuffer());
+  writeFileSync(sourcePath, createComplexSourceWorkbookBuffer());
+
+  await page.goto("/");
+  await page.getByLabel("API Key").fill("mock-local-api-key");
+
+  const fileInputs = page.locator("input[type=file]");
+  await fileInputs.nth(0).setInputFiles(templatePath);
+  await fileInputs.nth(1).setInputFiles(sourcePath);
+
+  await page.getByLabel("Mapping Prompt").fill(
+    "Please map the Customers sheet into the Migration Input sheet starting at row 5. Use the customer id, source row, name, country as ISO code, currency, risk score, email, and add validation notes."
+  );
+  await page.getByRole("button", { name: "AI-Assisted Deterministic" }).click();
+  await page.getByRole("button", { name: "Plan With AI, Execute With Code" }).click();
+
+  await expect(page.getByText("Success")).toBeVisible();
+  await expect(page.getByLabel("Migration Input A5")).toHaveValue("CUST-001");
+  await expect(page.getByLabel("Migration Input D5")).toHaveValue("CA");
+  await expect(page.locator('input[value="Mapped deterministically"]').first()).toBeVisible();
+  await page.getByRole("tab", { name: "Run Response" }).click();
+  await expect(page.getByText("AI-assisted mapping plan created by Test Script IQ. Workbook populated by deterministic mapper.")).toBeVisible();
+  await expect(page.getByText("Mapping plan:")).toBeVisible();
+
+  expect(invocationCount).toBe(1);
+  expect(JSON.stringify(latestAgentRequest)).toContain("You are a mapping planner");
+  expect(JSON.stringify(latestAgentRequest)).not.toContain("data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,");
 });
 
 test("maps a larger multi-sheet workbook with header inference and no API key", async ({ page }, testInfo) => {

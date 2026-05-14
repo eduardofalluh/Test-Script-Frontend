@@ -20,7 +20,7 @@ const API_KEY_STORAGE_KEY = "excel-mapper.syntax-api-key";
 const SESSION_ID_STORAGE_KEY = "excel-mapper.session-id";
 const PROMPT_PLACEHOLDER =
   "Take the customer data from Source.xlsx sheet 'Customers' columns A-E and map them to the template's 'Migration Input' sheet starting row 5. Map source A to target C, source B to target D, source C to target F, and convert country names to ISO-2 codes before writing them.";
-type MappingMode = "deterministic" | "agent";
+type MappingMode = "deterministic" | "assisted" | "agent";
 
 export function ExcelMapperApp() {
   return (
@@ -146,7 +146,7 @@ function ExcelMapperContent() {
       toast({ title: "Prompt required", description: "Describe the mapping logic before generating." });
       return;
     }
-    if (mappingMode === "agent" && !apiKey.trim()) {
+    if (mappingMode !== "deterministic" && !apiKey.trim()) {
       toast({ title: "API key required", description: "Paste your Syntax GenAI Studio API key." });
       return;
     }
@@ -158,11 +158,15 @@ function ExcelMapperContent() {
       statusMessage:
         mappingMode === "deterministic"
           ? "Running deterministic workbook mapper locally..."
-          : "Processing request with Test Script IQ...",
+          : mappingMode === "assisted"
+            ? "Asking Test Script IQ for a JSON mapping plan, then executing it deterministically..."
+            : "Processing request with Test Script IQ...",
       responseText:
         mappingMode === "deterministic"
           ? "Running deterministic workbook mapper. The external AI agent is not being used."
-          : "Request sent to Test Script IQ. Waiting for the final response...",
+          : mappingMode === "assisted"
+            ? "Requesting a structured mapping plan from Test Script IQ. The app will execute the Excel writes deterministically."
+            : "Request sent to Test Script IQ. Waiting for the final response...",
       file: null,
       preview: null
     });
@@ -171,14 +175,16 @@ function ExcelMapperContent() {
       description:
         mappingMode === "deterministic"
           ? "Applying coded mapping rules to the uploaded workbook."
-          : "Sending files and prompt to Test Script IQ."
+          : mappingMode === "assisted"
+            ? "Using AI for planning only; deterministic code will write the workbook."
+            : "Sending files and prompt to Test Script IQ."
     });
 
     const formData = new FormData();
     formData.append("template", overrideTemplate ?? templateFiles[0].file);
     sourceFiles.forEach((source) => formData.append("sources", source.file));
     formData.append("prompt", trimmedPrompt);
-    if (mappingMode === "agent") {
+    if (mappingMode !== "deterministic") {
       formData.append("apiKey", apiKey.trim());
     }
     const requestSessionId = sessionId || createSessionId();
@@ -189,7 +195,13 @@ function ExcelMapperContent() {
     formData.append("sessionId", requestSessionId);
 
     try {
-      const response = await fetch(mappingMode === "deterministic" ? "/api/map-workbook" : "/api/invoke-agent", {
+      const endpoint =
+        mappingMode === "deterministic"
+          ? "/api/map-workbook"
+          : mappingMode === "assisted"
+            ? "/api/plan-and-map-workbook"
+            : "/api/invoke-agent";
+      const response = await fetch(endpoint, {
         method: "POST",
         body: formData,
         signal: controller.signal
@@ -222,9 +234,11 @@ function ExcelMapperContent() {
         description:
           mappingMode === "deterministic"
             ? "Workbook populated by deterministic mapper."
-            : payload.file
-              ? "Populated workbook detected."
-              : "Agent responded without a workbook."
+            : mappingMode === "assisted"
+              ? "AI mapping plan executed deterministically."
+              : payload.file
+                ? "Populated workbook detected."
+                : "Agent responded without a workbook."
       });
     } catch (error) {
       const message = error instanceof DOMException && error.name === "AbortError" ? "The request was canceled." : getErrorMessage(error);
@@ -352,7 +366,7 @@ function ExcelMapperContent() {
             <div>
               <p className="text-sm font-medium">Mapping engine</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Deterministic mode uses coded SheetJS logic for cell-by-cell mapping. The external agent is only used when you choose AI Agent mode.
+                Deterministic mode uses coded SheetJS logic for cell-by-cell mapping. AI-Assisted mode lets Test Script IQ interpret the prompt into JSON rules, then code writes the workbook.
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row" role="group" aria-label="Mapping engine">
@@ -363,6 +377,9 @@ function ExcelMapperContent() {
               >
                 Deterministic Mapper
               </Button>
+              <Button type="button" variant={mappingMode === "assisted" ? "default" : "outline"} onClick={() => setMappingMode("assisted")}>
+                AI-Assisted Deterministic
+              </Button>
               <Button type="button" variant={mappingMode === "agent" ? "default" : "outline"} onClick={() => setMappingMode("agent")}>
                 External AI Agent
               </Button>
@@ -371,6 +388,12 @@ function ExcelMapperContent() {
               <Alert>
                 <AlertDescription>
                   Supported deterministic prompts should name a source sheet, target sheet, target start row, and either explicit column mappings like A-&gt;C or matching source/target headers.
+                </AlertDescription>
+              </Alert>
+            ) : mappingMode === "assisted" ? (
+              <Alert className="border-accent/40 bg-accent/10">
+                <AlertDescription>
+                  AI-Assisted mode sends workbook summaries and your prompt to Test Script IQ for a JSON mapping plan. Excel writing still happens deterministically in this app.
                 </AlertDescription>
               </Alert>
             ) : (
@@ -385,7 +408,7 @@ function ExcelMapperContent() {
           <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
             <div className="space-y-2">
               <label htmlFor="api-key" className="text-sm font-medium">
-                API Key {mappingMode === "deterministic" ? <span className="text-muted-foreground">(only needed for AI Agent mode)</span> : null}
+                API Key {mappingMode === "deterministic" ? <span className="text-muted-foreground">(only needed for AI modes)</span> : null}
               </label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
@@ -442,7 +465,9 @@ function ExcelMapperContent() {
                 ? "Generating..."
                 : mappingMode === "deterministic"
                   ? "Run Deterministic Mapping"
-                  : "Generate With AI Agent"}
+                  : mappingMode === "assisted"
+                    ? "Plan With AI, Execute With Code"
+                    : "Generate With AI Agent"}
             </Button>
           </div>
         </CardContent>

@@ -3,18 +3,18 @@ import { EXCEL_MIME_TYPE } from "@/lib/constants";
 import { sanitizeFilename } from "@/lib/utils";
 import type { AgentFilePayload } from "@/lib/types";
 
-type WorkbookInput = {
+export type WorkbookInput = {
   filename: string;
   buffer: Buffer;
 };
 
-type DeterministicMappingInput = {
+export type DeterministicMappingInput = {
   template: WorkbookInput;
   sources: WorkbookInput[];
   prompt: string;
 };
 
-type ColumnMapping = {
+export type ColumnMapping = {
   sourceColumnIndex: number | null;
   targetColumnIndex: number;
   sourceLabel: string;
@@ -22,12 +22,28 @@ type ColumnMapping = {
   generated?: "source-row" | "validation-note";
 };
 
-type MappingRule = {
+export type MappingRule = {
   sourceSheetName: string;
   targetSheetName: string;
   targetStartRow: number;
   mappings: ColumnMapping[];
   convertCountryToIso2: boolean;
+};
+
+export type StructuredMappingSpec = {
+  sourceSheetName: string;
+  targetSheetName: string;
+  targetStartRow: number;
+  mappings: Array<{
+    sourceColumn?: string;
+    targetColumn?: string;
+    sourceHeader?: string;
+    targetHeader?: string;
+    generated?: "source-row" | "validation-note";
+  }>;
+  transformations?: {
+    convertCountryToIso2?: boolean;
+  };
 };
 
 const COUNTRY_TO_ISO2: Record<string, string> = {
@@ -71,6 +87,56 @@ export function mapWorkbookDeterministically(input: DeterministicMappingInput) {
   }));
 
   const rule = parseMappingRule(input.prompt, templateWorkbook, sourceWorkbooks);
+  return executeMapping({
+    input,
+    templateWorkbook,
+    sourceWorkbooks,
+    rule,
+    responseHeader: "Deterministic mapper completed without using the external AI agent.",
+    rawMode: "deterministic"
+  });
+}
+
+export function mapWorkbookFromStructuredSpec(input: DeterministicMappingInput, spec: StructuredMappingSpec) {
+  if (input.sources.length === 0) {
+    throw new Error("At least one source workbook is required for deterministic mapping.");
+  }
+
+  const templateWorkbook = XLSX.read(input.template.buffer, { type: "buffer", cellDates: true });
+  const sourceWorkbooks = input.sources.map((source) => ({
+    filename: source.filename,
+    workbook: XLSX.read(source.buffer, { type: "buffer", cellDates: true })
+  }));
+  const rule = structuredSpecToMappingRule(spec, templateWorkbook, sourceWorkbooks);
+
+  return executeMapping({
+    input,
+    templateWorkbook,
+    sourceWorkbooks,
+    rule,
+    responseHeader: "AI-assisted mapping plan created by Test Script IQ. Workbook populated by deterministic mapper.",
+    rawMode: "ai-assisted-deterministic",
+    plan: spec
+  });
+}
+
+function executeMapping({
+  input,
+  templateWorkbook,
+  sourceWorkbooks,
+  rule,
+  responseHeader,
+  rawMode,
+  plan
+}: {
+  input: DeterministicMappingInput;
+  templateWorkbook: XLSX.WorkBook;
+  sourceWorkbooks: Array<{ filename: string; workbook: XLSX.WorkBook }>;
+  rule: MappingRule;
+  responseHeader: string;
+  rawMode: string;
+  plan?: StructuredMappingSpec;
+}) {
   const sourceWorkbook = sourceWorkbooks.find((source) => findSheetName(source.workbook, rule.sourceSheetName));
   if (!sourceWorkbook) {
     throw new Error(`Could not find source sheet "${rule.sourceSheetName}" in the uploaded source workbooks.`);
@@ -120,7 +186,7 @@ export function mapWorkbookDeterministically(input: DeterministicMappingInput) {
   return {
     file,
     responseText: [
-      "Deterministic mapper completed without using the external AI agent.",
+      responseHeader,
       "",
       `Source workbook: ${sourceWorkbook.filename}`,
       `Source sheet: ${resolvedSourceSheetName}`,
@@ -131,10 +197,83 @@ export function mapWorkbookDeterministically(input: DeterministicMappingInput) {
       rule.convertCountryToIso2 ? "Transformations: country names converted to ISO-2 where recognized." : "Transformations: none."
     ].join("\n"),
     rawResponse: {
-      mode: "deterministic",
+      mode: rawMode,
       rule,
-      rowsMapped: mappedRows.length
+      rowsMapped: mappedRows.length,
+      plan
     }
+  };
+}
+
+function structuredSpecToMappingRule(
+  spec: StructuredMappingSpec,
+  templateWorkbook: XLSX.WorkBook,
+  sources: Array<{ filename: string; workbook: XLSX.WorkBook }>
+): MappingRule {
+  if (!spec.sourceSheetName || !spec.targetSheetName || !spec.targetStartRow) {
+    throw new Error("AI mapping plan is missing sourceSheetName, targetSheetName, or targetStartRow.");
+  }
+
+  const sourceWorkbook = sources.find((source) => findSheetName(source.workbook, spec.sourceSheetName)) ?? sources[0];
+  const resolvedSourceSheetName = findSheetName(sourceWorkbook.workbook, spec.sourceSheetName);
+  const resolvedTargetSheetName = findSheetName(templateWorkbook, spec.targetSheetName);
+  if (!resolvedSourceSheetName || !resolvedTargetSheetName) {
+    throw new Error("AI mapping plan references a source or target sheet that was not found.");
+  }
+
+  const sourceRows = sheetToRows(sourceWorkbook.workbook.Sheets[resolvedSourceSheetName]);
+  const targetRows = sheetToRows(templateWorkbook.Sheets[resolvedTargetSheetName]);
+  const sourceHeaders = sourceRows[detectHeaderRowIndex(sourceRows)] ?? [];
+  const targetHeaders = targetRows[spec.targetStartRow - 2] ?? [];
+
+  const mappings = spec.mappings.map((mapping) => resolveStructuredColumnMapping(mapping, sourceHeaders, targetHeaders));
+  if (mappings.length === 0) {
+    throw new Error("AI mapping plan did not include any executable column mappings.");
+  }
+
+  return {
+    sourceSheetName: spec.sourceSheetName,
+    targetSheetName: spec.targetSheetName,
+    targetStartRow: spec.targetStartRow,
+    mappings: uniqueTargetMappings(mappings),
+    convertCountryToIso2: Boolean(spec.transformations?.convertCountryToIso2)
+  };
+}
+
+function resolveStructuredColumnMapping(
+  mapping: StructuredMappingSpec["mappings"][number],
+  sourceHeaders: unknown[],
+  targetHeaders: unknown[]
+): ColumnMapping {
+  const targetColumnIndex = mapping.targetColumn
+    ? columnNameToIndex(mapping.targetColumn)
+    : findHeaderIndex(targetHeaders, mapping.targetHeader ?? "");
+  if (targetColumnIndex < 0) {
+    throw new Error(`AI mapping plan target column could not be resolved: ${mapping.targetColumn ?? mapping.targetHeader ?? "unknown"}`);
+  }
+
+  if (mapping.generated) {
+    return {
+      sourceColumnIndex: null,
+      targetColumnIndex,
+      sourceLabel: mapping.generated,
+      targetLabel: String(targetHeaders[targetColumnIndex] || mapping.targetHeader || mapping.targetColumn || ""),
+      generated: mapping.generated
+    };
+  }
+
+  const sourceColumnIndex = mapping.sourceColumn
+    ? columnNameToIndex(mapping.sourceColumn)
+    : findHeaderIndex(sourceHeaders, mapping.sourceHeader ?? "");
+  if (sourceColumnIndex < 0) {
+    throw new Error(`AI mapping plan source column could not be resolved: ${mapping.sourceColumn ?? mapping.sourceHeader ?? "unknown"}`);
+  }
+
+  return {
+    sourceColumnIndex,
+    targetColumnIndex,
+    sourceLabel: String(sourceHeaders[sourceColumnIndex] || mapping.sourceHeader || mapping.sourceColumn || ""),
+    targetLabel: String(targetHeaders[targetColumnIndex] || mapping.targetHeader || mapping.targetColumn || "")
   };
 }
 
@@ -345,6 +484,10 @@ function detectHeaderRowIndex(rows: unknown[][]) {
 
 function findSheetName(workbook: XLSX.WorkBook, requestedName: string) {
   return workbook.SheetNames.find((sheetName) => sheetName.toLowerCase() === requestedName.toLowerCase());
+}
+
+function findHeaderIndex(headers: unknown[], requestedHeader: string) {
+  return headers.findIndex((header) => headersMatch(String(header || ""), requestedHeader));
 }
 
 function writeCell(sheet: XLSX.WorkSheet, rowIndex: number, columnIndex: number, value: unknown) {
