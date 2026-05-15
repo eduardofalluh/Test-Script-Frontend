@@ -36,6 +36,7 @@ const includedPaths = [
   "package-lock.json",
   "package.json",
   "postcss.config.js",
+  "public",
   "scripts",
   "tailwind.config.ts",
   "tsconfig.json"

@@ -50,6 +50,8 @@ This creates `release/excel-mapper-local.zip` and a matching unpacked folder. Se
 - `START_EXCEL_MAPPER_MAC.command`
 - `START_EXCEL_MAPPER_WINDOWS.bat`
 
+Windows testers must use the Windows x64 Node.js LTS installer. The 32-bit Windows Node.js build reports `process.arch` as `ia32` and cannot load the Next.js SWC compiler.
+
 The first run installs dependencies, then opens http://localhost:3010.
 
 ## API Key

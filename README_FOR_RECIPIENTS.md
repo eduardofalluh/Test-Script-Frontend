@@ -6,6 +6,8 @@ Excel Mapper runs locally on your computer. By default it uses deterministic cod
 
 Install Node.js LTS from https://nodejs.org.
 
+On Windows, install the **Windows x64** Node.js LTS download. The 32-bit Windows Node.js build cannot load the Next.js compiler and will stop with a `failed-loading-swc` error.
+
 You only need a Syntax GenAI Studio API key if you choose **AI-Assisted Deterministic**, **SAP CALM Test Script**, or **External AI Agent** mode. Paste it into the app when it opens. The key is saved locally in your browser on your computer, so it stays after refreshes. Use **Forget** in the app if you want to remove it.
 
 ## SAP CALM Test Script Mode
@@ -29,6 +31,8 @@ Double-click:
 ```text
 START_EXCEL_MAPPER_WINDOWS.bat
 ```
+
+If the starter says your Node.js architecture is `ia32`, uninstall 32-bit Node.js and install the Windows x64 LTS version from https://nodejs.org. Then double-click the starter again.
 
 ## Browser URL
 
