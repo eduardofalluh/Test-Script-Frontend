@@ -2,7 +2,7 @@
 
 Excel Mapper is a single-user Next.js app for SAP consultants who need to map source Excel workbooks into a target Excel template with deterministic, coded mapping logic. Syntax GenAI Studio's **Test Script IQ** agent can optionally interpret natural-language prompts into structured JSON mapping plans, but the app still performs the Excel writing with code.
 
-The app lets you upload a target `.xlsx` or `.xlsm` template, upload one or more source workbooks, write detailed mapping instructions, run cell-by-cell mapping through a server-side Next.js API route, review the returned workbook in an editable Easy View, revise the output, and download the populated file.
+The app lets you upload a target `.xlsx` or `.xlsm` template, upload one or more source workbooks, write detailed mapping instructions, run cell-by-cell mapping through a server-side Next.js API route, review the returned workbook in an editable Easy View, revise the output, and download the populated file. It also includes a **SAP CALM Test Script** mode that automatically loads the bundled SAP Cloud ALM Test Cases template and maps source data into that format.
 
 ## Tech Stack
 
@@ -70,9 +70,10 @@ https://studio-api.ai.syntax-rnd.com/api/v1/agents/6d310742-9d0a-4069-8689-6c8fe
 4. If matching headers are available, the deterministic mapper can infer common mappings such as `Name` -> `Customer Name` and `Contact Email` -> `Email`.
 5. If requested, simple coded transformations such as country name to ISO-2 conversion are applied.
 6. **AI-Assisted Deterministic** mode sends workbook summaries and the user's prompt to `/api/plan-and-map-workbook`. Test Script IQ returns JSON mapping specs only; the app validates and executes those specs with deterministic SheetJS logic.
-7. **External AI Agent** mode still uses `/api/invoke-agent`, converts workbooks to base64 data URLs, builds the agent prompt, and lets Test Script IQ return a workbook.
-8. If a workbook is found, the browser opens an Easy View with sheet switching, editable cells, and an edited-file download. Otherwise, the full run response remains visible for diagnosis.
-9. Use the Revise tab to describe follow-up changes. The app re-runs the currently selected mapping engine.
+7. **SAP CALM Test Script** mode loads `public/templates/sap-cloud-alm-test-cases-template.xlsx`, pre-fills SAP Cloud ALM mapping guidance, asks the user for clarification in the prompt, clears the template's sample rows, and writes into the `Test Cases` sheet starting at row 2.
+8. **External AI Agent** mode still uses `/api/invoke-agent`, converts workbooks to base64 data URLs, builds the agent prompt, and lets Test Script IQ return a workbook.
+9. If a workbook is found, the browser opens an Easy View with sheet switching, editable cells, and an edited-file download. Otherwise, the full run response remains visible for diagnosis.
+10. Use the Revise tab to describe follow-up changes. The app re-runs the currently selected mapping engine.
 
 ## Test Like A User
 
@@ -82,7 +83,7 @@ Run the browser E2E test:
 npm run test:e2e
 ```
 
-The test creates complex mock Excel files, starts a local mock Syntax agent, uploads the files through the UI, submits the mapping prompt, verifies deterministic mapping without invoking the mock agent, checks a larger header-inference workbook, verifies AI-assisted planning produces only a JSON mapping plan before deterministic execution, edits a result cell, checks API-key/session persistence after refresh, and confirms the optional AI fallback can still call the mock agent. The test uses `SYNTAX_AGENT_ENDPOINT` to avoid calling the real external agent.
+The test creates complex mock Excel files, starts a local mock Syntax agent, uploads the files through the UI, submits the mapping prompt, verifies deterministic mapping without invoking the mock agent, checks a larger header-inference workbook, verifies SAP CALM template mode, verifies AI-assisted planning produces only a JSON mapping plan before deterministic execution, edits a result cell, checks API-key/session persistence after refresh, and confirms the optional AI fallback can still call the mock agent. The test uses `SYNTAX_AGENT_ENDPOINT` to avoid calling the real external agent.
 
 ## Deploy
 
@@ -117,7 +118,7 @@ The current constants live in `lib/constants.ts`:
 - Each workbook is capped at 50 MB.
 - The encoded request payload is capped at roughly 50 MB.
 - Uploaded files are not persisted. Deterministic mode sends files only to the local Next.js route. AI-Assisted Deterministic mode sends workbook summaries and prompt text to Test Script IQ for planning. External AI Agent mode sends full files to `/api/invoke-agent`, which proxies to Syntax GenAI Studio.
-- Deterministic mapping currently handles explicit sheet/start-row/column mappings, common header-based mappings, source row notes, validation notes, and country-name-to-ISO2 conversion.
+- Deterministic mapping currently handles explicit sheet/start-row/column mappings, common header-based mappings, source row notes, validation notes, constant values, clearing sample target rows, and country-name-to-ISO2 conversion.
 - Ambiguous mapping instructions should either be rewritten with explicit rules or run through AI-Assisted Deterministic mode so the LLM can translate the prompt into executable JSON specs.
 - Manual Easy View edits are exported in the browser. Revision requests can use the edited workbook as the next template.
 - The Syntax API request currently passes Excel files as base64 `data:` URLs in `image_url.url`, matching the available agent input shape. If the agent backend rejects non-image data URLs, replace this with short-lived presigned URLs. A `TemporaryFileHost` interface stub is already in `lib/file-hosting.ts`.

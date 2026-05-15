@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/toaster";
 import { ToastStateProvider, useToast } from "@/hooks/use-toast";
+import { EXCEL_MIME_TYPE } from "@/lib/constants";
 import { parseWorkbook, parseWorkbookFromBase64 } from "@/lib/excel";
 import type { InvokeAgentResponse, SavedPrompt, UploadedWorkbook } from "@/lib/types";
 import { estimatedBase64Size, formatBytes } from "@/lib/utils";
@@ -20,7 +21,18 @@ const API_KEY_STORAGE_KEY = "excel-mapper.syntax-api-key";
 const SESSION_ID_STORAGE_KEY = "excel-mapper.session-id";
 const PROMPT_PLACEHOLDER =
   "Take the customer data from Source.xlsx sheet 'Customers' columns A-E and map them to the template's 'Migration Input' sheet starting row 5. Map source A to target C, source B to target D, source C to target F, and convert country names to ISO-2 codes before writing them.";
-type MappingMode = "deterministic" | "assisted" | "agent";
+const SAP_CALM_TEMPLATE_URL = "/templates/sap-cloud-alm-test-cases-template.xlsx";
+const SAP_CALM_TEMPLATE_NAME = "SAP Cloud ALM - Test Cases template.xlsx";
+const SAP_CALM_PROMPT = [
+  "Use SAP Cloud ALM Test Script mode with the built-in SAP Cloud ALM Test Cases template.",
+  "Map the uploaded source workbook into target sheet 'Test Cases' starting at row 2.",
+  "Clear the sample rows before writing new rows.",
+  "Use these SAP CALM target columns when mapping: Test Case Name, Test Case Status, Test Case Priority, Test Case References, Test Case Owner, Tag, Activity Title, Activity Target Name, Activity Target URL, Action Title, Action Instructions, Action Expected Result, Action Evidence.",
+  "Default missing Test Case Status to In Preparation and missing Test Case Priority to Medium.",
+  "",
+  "User clarification:"
+].join("\n");
+type MappingMode = "deterministic" | "assisted" | "sap-calm" | "agent";
 
 export function ExcelMapperApp() {
   return (
@@ -115,6 +127,33 @@ function ExcelMapperContent() {
     window.localStorage.setItem(API_KEY_STORAGE_KEY, value);
   }, []);
 
+  const activateSapCalmMode = React.useCallback(async () => {
+    if (result.status === "processing") {
+      return;
+    }
+
+    setMappingMode("sap-calm");
+    setPrompt((current) => ensureSapCalmPrompt(current));
+
+    try {
+      const response = await fetch(SAP_CALM_TEMPLATE_URL);
+      if (!response.ok) {
+        throw new Error(`Could not load SAP CALM template (${response.status}).`);
+      }
+
+      const blob = await response.blob();
+      const templateFile = new File([blob], SAP_CALM_TEMPLATE_NAME, { type: EXCEL_MIME_TYPE });
+      const uploaded = await buildUploadedWorkbook(templateFile);
+      setTemplateFiles(uploaded ? [uploaded] : []);
+      toast({
+        title: "SAP CALM mode enabled",
+        description: "The SAP Cloud ALM Test Cases template is ready. Upload the source workbook and add mapping clarification."
+      });
+    } catch (error) {
+      toast({ title: "SAP CALM template failed to load", description: getErrorMessage(error) });
+    }
+  }, [result.status, toast]);
+
   const regenerateSession = React.useCallback(() => {
     const nextSessionId = createSessionId();
     window.localStorage.setItem(SESSION_ID_STORAGE_KEY, nextSessionId);
@@ -160,13 +199,17 @@ function ExcelMapperContent() {
           ? "Running deterministic workbook mapper locally..."
           : mappingMode === "assisted"
             ? "Asking Test Script IQ for a JSON mapping plan, then executing it deterministically..."
-            : "Processing request with Test Script IQ...",
+            : mappingMode === "sap-calm"
+              ? "Planning SAP CALM field mapping, then writing into the bundled template..."
+              : "Processing request with Test Script IQ...",
       responseText:
         mappingMode === "deterministic"
           ? "Running deterministic workbook mapper. The external AI agent is not being used."
           : mappingMode === "assisted"
             ? "Requesting a structured mapping plan from Test Script IQ. The app will execute the Excel writes deterministically."
-            : "Request sent to Test Script IQ. Waiting for the final response...",
+            : mappingMode === "sap-calm"
+              ? "Using the bundled SAP Cloud ALM Test Cases template. Test Script IQ will plan the field mapping from your clarification, then code will write the workbook."
+              : "Request sent to Test Script IQ. Waiting for the final response...",
       file: null,
       preview: null
     });
@@ -177,7 +220,9 @@ function ExcelMapperContent() {
           ? "Applying coded mapping rules to the uploaded workbook."
           : mappingMode === "assisted"
             ? "Using AI for planning only; deterministic code will write the workbook."
-            : "Sending files and prompt to Test Script IQ."
+            : mappingMode === "sap-calm"
+              ? "Using the SAP CALM template and your source workbook."
+              : "Sending files and prompt to Test Script IQ."
     });
 
     const formData = new FormData();
@@ -198,7 +243,7 @@ function ExcelMapperContent() {
       const endpoint =
         mappingMode === "deterministic"
           ? "/api/map-workbook"
-          : mappingMode === "assisted"
+          : mappingMode === "assisted" || mappingMode === "sap-calm"
             ? "/api/plan-and-map-workbook"
             : "/api/invoke-agent";
       const response = await fetch(endpoint, {
@@ -236,9 +281,11 @@ function ExcelMapperContent() {
             ? "Workbook populated by deterministic mapper."
             : mappingMode === "assisted"
               ? "AI mapping plan executed deterministically."
-              : payload.file
-                ? "Populated workbook detected."
-                : "Agent responded without a workbook."
+              : mappingMode === "sap-calm"
+                ? "SAP CALM workbook generated."
+                : payload.file
+                  ? "Populated workbook detected."
+                  : "Agent responded without a workbook."
       });
     } catch (error) {
       const message = error instanceof DOMException && error.name === "AbortError" ? "The request was canceled." : getErrorMessage(error);
@@ -327,7 +374,7 @@ function ExcelMapperContent() {
       <section className="grid gap-4 lg:grid-cols-2">
         <WorkbookDropzone
           title="Template Upload"
-          description="Target workbook to be populated."
+          description={mappingMode === "sap-calm" ? "SAP Cloud ALM Test Cases template loaded by SAP CALM mode." : "Target workbook to be populated."}
           files={templateFiles}
           onDropAccepted={handleTemplateDrop}
           onRemove={removeTemplate}
@@ -366,7 +413,7 @@ function ExcelMapperContent() {
             <div>
               <p className="text-sm font-medium">Mapping engine</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Deterministic mode uses coded SheetJS logic for cell-by-cell mapping. AI-Assisted mode lets Test Script IQ interpret the prompt into JSON rules, then code writes the workbook.
+                Deterministic mode uses coded SheetJS logic for cell-by-cell mapping. AI-Assisted and SAP CALM modes let Test Script IQ interpret the prompt into JSON rules, then code writes the workbook.
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row" role="group" aria-label="Mapping engine">
@@ -379,6 +426,9 @@ function ExcelMapperContent() {
               </Button>
               <Button type="button" variant={mappingMode === "assisted" ? "default" : "outline"} onClick={() => setMappingMode("assisted")}>
                 AI-Assisted Deterministic
+              </Button>
+              <Button type="button" variant={mappingMode === "sap-calm" ? "default" : "outline"} onClick={() => void activateSapCalmMode()}>
+                SAP CALM Test Script
               </Button>
               <Button type="button" variant={mappingMode === "agent" ? "default" : "outline"} onClick={() => setMappingMode("agent")}>
                 External AI Agent
@@ -396,6 +446,12 @@ function ExcelMapperContent() {
                   AI-Assisted mode sends workbook summaries and your prompt to Test Script IQ for a JSON mapping plan. Excel writing still happens deterministically in this app.
                 </AlertDescription>
               </Alert>
+            ) : mappingMode === "sap-calm" ? (
+              <Alert className="border-accent/40 bg-accent/10">
+                <AlertDescription>
+                  SAP CALM mode loads the built-in SAP Cloud ALM Test Cases template, sends workbook summaries and your clarification prompt to Test Script IQ, then writes the mapped rows into the Test Cases sheet.
+                </AlertDescription>
+              </Alert>
             ) : (
               <Alert className="border-amber-400/40 bg-amber-400/10">
                 <AlertDescription>
@@ -408,7 +464,7 @@ function ExcelMapperContent() {
           <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
             <div className="space-y-2">
               <label htmlFor="api-key" className="text-sm font-medium">
-                API Key {mappingMode === "deterministic" ? <span className="text-muted-foreground">(only needed for AI modes)</span> : null}
+                API Key {mappingMode === "deterministic" ? <span className="text-muted-foreground">(only needed for AI and SAP CALM modes)</span> : null}
               </label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
@@ -467,7 +523,9 @@ function ExcelMapperContent() {
                   ? "Run Deterministic Mapping"
                   : mappingMode === "assisted"
                     ? "Plan With AI, Execute With Code"
-                    : "Generate With AI Agent"}
+                    : mappingMode === "sap-calm"
+                      ? "Generate SAP CALM Workbook"
+                      : "Generate With AI Agent"}
             </Button>
           </div>
         </CardContent>
@@ -494,6 +552,18 @@ async function buildUploadedWorkbook(file: File | undefined): Promise<UploadedWo
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "An unknown error occurred.";
+}
+
+function ensureSapCalmPrompt(currentPrompt: string) {
+  const trimmedPrompt = currentPrompt.trim();
+  if (!trimmedPrompt) {
+    return SAP_CALM_PROMPT;
+  }
+  if (/SAP Cloud ALM Test Script mode/i.test(trimmedPrompt)) {
+    return currentPrompt;
+  }
+
+  return `${SAP_CALM_PROMPT}\n${trimmedPrompt}`;
 }
 
 // Future saved-prompt feature: keep the shape close to the app's eventual

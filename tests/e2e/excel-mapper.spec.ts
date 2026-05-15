@@ -24,7 +24,30 @@ test.beforeAll(async () => {
     const requestText = JSON.stringify(latestAgentRequest);
 
     if (requestText.includes("You are a mapping planner")) {
-      const mappingPlan = requestText.includes("Customer Master - Export")
+      const mappingPlan = requestText.includes("CALM Export")
+        ? {
+            sourceSheetName: "CALM Export",
+            targetSheetName: "Test Cases",
+            targetStartRow: 2,
+            mappings: [
+              { sourceHeader: "Scenario", targetHeader: "Test Case Name" },
+              { constantValue: "In Preparation", targetHeader: "Test Case Status" },
+              { constantValue: "Medium", targetHeader: "Test Case Priority" },
+              { sourceHeader: "Owner", targetHeader: "Test Case Owner" },
+              { sourceHeader: "Tags", targetHeader: "Tag" },
+              { sourceHeader: "Activity", targetHeader: "Activity Title" },
+              { sourceHeader: "Application", targetHeader: "Activity Target Name" },
+              { sourceHeader: "URL", targetHeader: "Activity Target URL" },
+              { sourceHeader: "Action", targetHeader: "Action Title" },
+              { sourceHeader: "Instruction", targetHeader: "Action Instructions" },
+              { sourceHeader: "Expected", targetHeader: "Action Expected Result" },
+              { sourceHeader: "Evidence", targetHeader: "Action Evidence" }
+            ],
+            transformations: {
+              clearTargetRowsBeforeMapping: true
+            }
+          }
+        : requestText.includes("Customer Master - Export")
         ? {
             sourceSheetName: "Customer Master - Export",
             targetSheetName: "Migration Input",
@@ -189,6 +212,57 @@ test("uses LLM only to plan mappings, then executes Excel writes deterministical
 
   expect(invocationCount).toBe(1);
   expect(JSON.stringify(latestAgentRequest)).toContain("You are a mapping planner");
+  expect(JSON.stringify(latestAgentRequest)).not.toContain("data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,");
+});
+
+test("loads the bundled SAP CALM template and maps source data into test cases", async ({ page }, testInfo) => {
+  const sourcePath = testInfo.outputPath("SAP_CALM_Source_Data.xlsx");
+  mkdirSync(dirname(sourcePath), { recursive: true });
+  writeFileSync(sourcePath, createSapCalmSourceWorkbookBuffer());
+
+  await page.goto("/");
+  await page.getByLabel("API Key").fill("mock-local-api-key");
+  await page.getByRole("button", { name: "SAP CALM Test Script" }).click();
+
+  await expect(page.getByText("SAP Cloud ALM - Test Cases template.xlsx")).toBeVisible();
+  await expect(page.getByText("Test Cases", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Mapping Prompt")).toHaveValue(/SAP Cloud ALM Test Script mode/);
+
+  const fileInputs = page.locator("input[type=file]");
+  await fileInputs.nth(1).setInputFiles(sourcePath);
+
+  const promptBox = page.getByLabel("Mapping Prompt");
+  await promptBox.fill(
+    [
+      await promptBox.inputValue(),
+      "The source data is on sheet 'CALM Export'.",
+      "Use Scenario as the test case name, Owner as test case owner, Tags as Tag, Activity/Application/URL as the activity fields, and Action/Instruction/Expected/Evidence as the action fields."
+    ].join("\n")
+  );
+
+  await page.getByRole("button", { name: "Generate SAP CALM Workbook" }).click();
+
+  await expect(page.getByText("Success")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Test Cases" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Test Cases A2", exact: true })).toHaveValue("Create Sales Order");
+  await expect(page.getByRole("textbox", { name: "Test Cases B2", exact: true })).toHaveValue("In Preparation");
+  await expect(page.getByRole("textbox", { name: "Test Cases C2", exact: true })).toHaveValue("Medium");
+  await expect(page.getByRole("textbox", { name: "Test Cases G3", exact: true })).toHaveValue("Post document");
+  await expect(page.getByRole("textbox", { name: "Test Cases M3", exact: true })).toHaveValue("X");
+
+  const workbook = await downloadWorkbook(page);
+  const sheet = workbook.Sheets["Test Cases"];
+  expect(cellValue(sheet, "A2")).toBe("Create Sales Order");
+  expect(cellValue(sheet, "B2")).toBe("In Preparation");
+  expect(cellValue(sheet, "C2")).toBe("Medium");
+  expect(cellValue(sheet, "G3")).toBe("Post document");
+  expect(cellValue(sheet, "M3")).toBe("X");
+  expect(cellValue(sheet, "A4")).toBeUndefined();
+
+  await page.getByRole("tab", { name: "Run Response" }).click();
+  await expect(page.getByText("target sample rows cleared before mapping")).toBeVisible();
+  expect(invocationCount).toBe(1);
+  expect(JSON.stringify(latestAgentRequest)).toContain("SAP Cloud ALM Test Script mode");
   expect(JSON.stringify(latestAgentRequest)).not.toContain("data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,");
 });
 
@@ -396,6 +470,53 @@ function createLargeSourceWorkbookBuffer(rowCount: number) {
     "Ignore Me"
   );
 
+  return XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer;
+}
+
+function createSapCalmSourceWorkbookBuffer() {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet([
+      [
+        "Scenario",
+        "Owner",
+        "Tags",
+        "Activity",
+        "Application",
+        "URL",
+        "Action",
+        "Instruction",
+        "Expected",
+        "Evidence"
+      ],
+      [
+        "Create Sales Order",
+        "qa.owner@example.com",
+        "SD\nRegression",
+        "Open sales app",
+        "SAP Fiori Launchpad",
+        "https://launchpad.example.com",
+        "Log on",
+        "Open the launchpad and sign in with the test user.",
+        "The launchpad home page is displayed.",
+        ""
+      ],
+      [
+        "Create Sales Order",
+        "qa.owner@example.com",
+        "SD\nRegression",
+        "Post document",
+        "Create Sales Orders",
+        "https://launchpad.example.com/sales",
+        "Save order",
+        "Enter sold-to party, material, and quantity, then save.",
+        "A sales order number is created.",
+        "X"
+      ]
+    ]),
+    "CALM Export"
+  );
   return XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer;
 }
 

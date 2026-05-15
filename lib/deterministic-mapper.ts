@@ -20,6 +20,7 @@ export type ColumnMapping = {
   sourceLabel: string;
   targetLabel: string;
   generated?: "source-row" | "validation-note";
+  constantValue?: string | number | boolean | null;
 };
 
 export type MappingRule = {
@@ -28,6 +29,7 @@ export type MappingRule = {
   targetStartRow: number;
   mappings: ColumnMapping[];
   convertCountryToIso2: boolean;
+  clearTargetRowsBeforeMapping: boolean;
 };
 
 export type StructuredMappingSpec = {
@@ -40,9 +42,11 @@ export type StructuredMappingSpec = {
     sourceHeader?: string;
     targetHeader?: string;
     generated?: "source-row" | "validation-note";
+    constantValue?: string | number | boolean | null;
   }>;
   transformations?: {
     convertCountryToIso2?: boolean;
+    clearTargetRowsBeforeMapping?: boolean;
   };
 };
 
@@ -158,6 +162,10 @@ function executeMapping({
   const sourceDataRows = sourceRows.slice(sourceHeaderRowIndex + 1);
   const mappedRows = sourceDataRows.filter((row) => row.some((cell) => cell !== ""));
 
+  if (rule.clearTargetRowsBeforeMapping) {
+    clearTargetRows(targetSheet, rule.targetStartRow - 1);
+  }
+
   mappedRows.forEach((sourceRow, rowOffset) => {
     const targetRowIndex = rule.targetStartRow - 1 + rowOffset;
     rule.mappings.forEach((mapping) => {
@@ -194,7 +202,17 @@ function executeMapping({
       `Target start row: ${rule.targetStartRow}`,
       `Rows mapped: ${mappedRows.length}`,
       `Column mappings: ${rule.mappings.map((mapping) => `${mapping.sourceLabel}->${mapping.targetLabel}`).join(", ")}`,
-      rule.convertCountryToIso2 ? "Transformations: country names converted to ISO-2 where recognized." : "Transformations: none."
+      [
+        rule.convertCountryToIso2 ? "country names converted to ISO-2 where recognized" : null,
+        rule.clearTargetRowsBeforeMapping ? "target sample rows cleared before mapping" : null
+      ].filter(Boolean).length > 0
+        ? `Transformations: ${[
+            rule.convertCountryToIso2 ? "country names converted to ISO-2 where recognized" : null,
+            rule.clearTargetRowsBeforeMapping ? "target sample rows cleared before mapping" : null
+          ]
+            .filter(Boolean)
+            .join("; ")}.`
+        : "Transformations: none."
     ].join("\n"),
     rawResponse: {
       mode: rawMode,
@@ -236,7 +254,8 @@ function structuredSpecToMappingRule(
     targetSheetName: spec.targetSheetName,
     targetStartRow: spec.targetStartRow,
     mappings: uniqueTargetMappings(mappings),
-    convertCountryToIso2: Boolean(spec.transformations?.convertCountryToIso2)
+    convertCountryToIso2: Boolean(spec.transformations?.convertCountryToIso2),
+    clearTargetRowsBeforeMapping: Boolean(spec.transformations?.clearTargetRowsBeforeMapping)
   };
 }
 
@@ -259,6 +278,16 @@ function resolveStructuredColumnMapping(
       sourceLabel: mapping.generated,
       targetLabel: String(targetHeaders[targetColumnIndex] || mapping.targetHeader || mapping.targetColumn || ""),
       generated: mapping.generated
+    };
+  }
+
+  if (Object.prototype.hasOwnProperty.call(mapping, "constantValue")) {
+    return {
+      sourceColumnIndex: null,
+      targetColumnIndex,
+      sourceLabel: `constant ${String(mapping.constantValue ?? "")}`,
+      targetLabel: String(targetHeaders[targetColumnIndex] || mapping.targetHeader || mapping.targetColumn || ""),
+      constantValue: mapping.constantValue
     };
   }
 
@@ -321,7 +350,8 @@ function parseMappingRule(
     targetSheetName,
     targetStartRow,
     mappings,
-    convertCountryToIso2: /iso-?2|country names?\s+to\s+iso/i.test(prompt)
+    convertCountryToIso2: /iso-?2|country names?\s+to\s+iso/i.test(prompt),
+    clearTargetRowsBeforeMapping: /clear (?:the )?(?:existing |sample )?(?:target )?rows|sap\s+(?:cloud\s+alm|calm)/i.test(prompt)
   };
 }
 
@@ -461,6 +491,9 @@ function resolveMappedValue({
   if (mapping.generated === "validation-note") {
     return "Mapped deterministically";
   }
+  if (Object.prototype.hasOwnProperty.call(mapping, "constantValue")) {
+    return mapping.constantValue ?? "";
+  }
 
   const rawValue = mapping.sourceColumnIndex === null ? "" : sourceRow[mapping.sourceColumnIndex];
   if (convertCountryToIso2 && normalizeHeader(mapping.targetLabel).includes("country")) {
@@ -475,6 +508,18 @@ function sheetToRows(sheet: XLSX.WorkSheet) {
     blankrows: false,
     defval: ""
   }) as unknown[][];
+}
+
+function clearTargetRows(sheet: XLSX.WorkSheet, startRowIndex: number) {
+  const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:A1");
+  for (let rowIndex = startRowIndex; rowIndex <= range.e.r; rowIndex += 1) {
+    for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex += 1) {
+      delete sheet[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })];
+    }
+  }
+
+  range.e.r = Math.max(range.s.r, startRowIndex - 1);
+  sheet["!ref"] = XLSX.utils.encode_range(range);
 }
 
 function detectHeaderRowIndex(rows: unknown[][]) {
