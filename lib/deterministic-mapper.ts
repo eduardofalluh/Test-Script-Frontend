@@ -216,10 +216,16 @@ function executeMapping({
 
     // For SAP CALM: Skip rows that look like header rows (contain asterisks, brackets, or all-caps)
     if (rule.targetSheetName === "Test Cases") {
+      // Check first cell
       const firstCell = String(row[0] || "").trim();
 
-      // Skip timestamp rows (contains date/time pattern like "6/2/2026, 8:41:41")
-      if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(firstCell) || /\d{1,2}:\d{1,2}/.test(firstCell)) {
+      // Skip timestamp rows - check if it looks like a date/time
+      // Patterns: "6/2/2026", "6/2/2026, 8:41:41", "8:41:41 AM", etc.
+      if (
+        /\d{1,2}\/\d{1,2}\/\d{4}/.test(firstCell) || // Date pattern
+        /\d{1,2}:\d{1,2}(:\d{1,2})?/.test(firstCell) || // Time pattern
+        /^\d{1,2}\/\d{1,2}\/\d{2,4}[,\s]/.test(firstCell) // Date followed by comma/space
+      ) {
         console.log(`[CALM Filter] Skipping timestamp row: ${firstCell}`);
         return false;
       }
@@ -237,6 +243,12 @@ function executeMapping({
       });
       if (cellsWithSymbols.length >= 3) {
         console.log(`[CALM Filter] Skipping multi-symbol header row`);
+        return false;
+      }
+
+      // Skip rows where first cell is very short and looks generic (like just a number)
+      if (firstCell.length > 0 && firstCell.length < 3 && /^\d+$/.test(firstCell)) {
+        console.log(`[CALM Filter] Skipping generic numeric row: ${firstCell}`);
         return false;
       }
     }
@@ -257,12 +269,20 @@ function executeMapping({
       : targetRowIndex;
 
     rule.mappings.forEach((mapping) => {
-      const value = resolveMappedValue({
+      let value = resolveMappedValue({
         mapping,
         sourceRow,
         sourceExcelRowNumber: sourceHeaderRowIndex + rowOffset + 2,
         convertCountryToIso2: rule.convertCountryToIso2
       });
+
+      // SAP CALM specific: Add # prefix to ALL data values in Test Case Name column (column A, index 0)
+      if (rule.targetSheetName === "Test Cases" && mapping.targetColumnIndex === 0 && value) {
+        const stringValue = String(value).trim();
+        if (stringValue !== "" && !stringValue.startsWith("#")) {
+          value = `# ${stringValue}`;
+        }
+      }
 
       writeCell(targetSheet, actualTargetRowIndex, mapping.targetColumnIndex, value);
     });
