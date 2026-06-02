@@ -192,7 +192,29 @@ function executeMapping({
   const sourceRows = sheetToRows(sourceSheet);
   const sourceHeaderRowIndex = detectHeaderRowIndex(sourceRows);
   const sourceDataRows = sourceRows.slice(sourceHeaderRowIndex + 1);
-  const mappedRows = sourceDataRows.filter((row) => row.some((cell) => cell !== ""));
+
+  // Filter out empty rows and header-like rows (rows with mostly text that matches headers)
+  const mappedRows = sourceDataRows.filter((row) => {
+    // Must have at least one non-empty cell
+    if (!row.some((cell) => cell !== "")) {
+      return false;
+    }
+
+    // For SAP CALM: Skip rows that look like header rows (contain asterisks, brackets, or all-caps)
+    if (rule.targetSheetName === "Test Cases") {
+      const firstCell = String(row[0] || "");
+      // Skip if first cell contains decorators like asterisks or brackets
+      if (firstCell.includes("*") || (firstCell.startsWith("[") && firstCell.endsWith("]"))) {
+        return false;
+      }
+      // Skip timestamp rows (contains date/time pattern)
+      if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(firstCell)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
 
   if (rule.clearTargetRowsBeforeMapping) {
     clearTargetRows(targetSheet, rule.targetStartRow - 1);
