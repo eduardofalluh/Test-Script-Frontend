@@ -190,17 +190,35 @@ function executeMapping({
   const sourceSheet = sourceWorkbook.workbook.Sheets[resolvedSourceSheetName];
   const targetSheet = templateWorkbook.Sheets[resolvedTargetSheetName];
 
-  // SAP CALM specific: Update header in column A to include # symbol
+  // SAP CALM specific: Clear original headers and set up structure
   if (rule.targetSheetName === "Test Cases") {
-    const headerCell = targetSheet["A1"];
-    if (headerCell && !String(headerCell.v).startsWith("#")) {
-      headerCell.v = `# ${headerCell.v}`;
-      headerCell.w = `# ${headerCell.w || headerCell.v}`;
-      headerCell.h = `# ${headerCell.h || headerCell.v}`;
-      if (headerCell.r) {
-        headerCell.r = `<t># ${headerCell.v}</t>`;
-      }
+    const range = XLSX.utils.decode_range(targetSheet["!ref"] || "A1:M1");
+
+    // Store original headers for row 5
+    const originalHeaders: any[] = [];
+    for (let colIndex = range.s.c; colIndex <= range.e.c; colIndex++) {
+      const cellAddr = XLSX.utils.encode_cell({ r: 0, c: colIndex });
+      originalHeaders.push(targetSheet[cellAddr] ? { ...targetSheet[cellAddr] } : null);
     }
+
+    // Clear row 1 completely and set only A1 with # prefix
+    for (let colIndex = range.s.c; colIndex <= range.e.c; colIndex++) {
+      const cellAddr = XLSX.utils.encode_cell({ r: 0, c: colIndex });
+      delete targetSheet[cellAddr];
+    }
+
+    // Set A1 with # Test Case Name
+    const headerText = originalHeaders[0]?.v || "Test Case Name";
+    targetSheet["A1"] = {
+      t: "s",
+      v: `# ${headerText}`,
+      w: `# ${headerText}`,
+      h: `# ${headerText}`,
+      s: originalHeaders[0]?.s
+    };
+
+    // Store headers to be added at row 5 later
+    targetSheet["__calmHeaders"] = originalHeaders;
   }
 
   const sourceRows = sheetToRows(sourceSheet);
@@ -260,28 +278,40 @@ function executeMapping({
     clearTargetRows(targetSheet, rule.targetStartRow - 1);
   }
 
-  // SAP CALM specific: Add header row at row 5 (index 4) with column titles
+  // SAP CALM specific: Set up rows 2 and 3 with only column A (# prefix)
   if (rule.targetSheetName === "Test Cases") {
-    const headerRow = targetSheet["1"]; // Get row 1 cells
-    const range = XLSX.utils.decode_range(targetSheet["!ref"] || "A1:A1");
+    // Row 2: # Test Case Name
+    targetSheet["A2"] = {
+      t: "s",
+      v: "# Test Case Name",
+      w: "# Test Case Name",
+      h: "# Test Case Name"
+    };
 
-    // Copy headers from row 1 to row 5
-    for (let colIndex = range.s.c; colIndex <= range.e.c; colIndex++) {
-      const sourceCell = targetSheet[XLSX.utils.encode_cell({ r: 0, c: colIndex })];
-      if (sourceCell) {
-        const targetCellAddr = XLSX.utils.encode_cell({ r: 4, c: colIndex }); // Row 5 = index 4
-        targetSheet[targetCellAddr] = {
-          ...sourceCell,
-          v: sourceCell.v,
-          t: sourceCell.t,
-          w: sourceCell.w,
-          h: sourceCell.h,
-          s: sourceCell.s
-        };
+    // Row 3: # Test Case Name
+    targetSheet["A3"] = {
+      t: "s",
+      v: "# Test Case Name",
+      w: "# Test Case Name",
+      h: "# Test Case Name"
+    };
+
+    // Row 4 is left blank (already cleared)
+
+    // Row 5: Add full header row with all column titles
+    const originalHeaders = (targetSheet as any)["__calmHeaders"] || [];
+    for (let colIndex = 0; colIndex < originalHeaders.length; colIndex++) {
+      if (originalHeaders[colIndex]) {
+        const cellAddr = XLSX.utils.encode_cell({ r: 4, c: colIndex }); // Row 5 = index 4
+        targetSheet[cellAddr] = { ...originalHeaders[colIndex] };
       }
     }
 
+    // Clean up temporary storage
+    delete (targetSheet as any)["__calmHeaders"];
+
     // Update range to include row 5
+    const range = XLSX.utils.decode_range(targetSheet["!ref"] || "A1:A1");
     if (range.e.r < 4) {
       range.e.r = 4;
       targetSheet["!ref"] = XLSX.utils.encode_range(range);
@@ -289,12 +319,10 @@ function executeMapping({
   }
 
   mappedRows.forEach((sourceRow, rowOffset) => {
-    const targetRowIndex = rule.targetStartRow - 1 + rowOffset;
-
-    // SAP CALM specific: Skip row 4 (index 3) - it must always be blank
-    const actualTargetRowIndex = rule.targetSheetName === "Test Cases" && targetRowIndex >= 3
-      ? targetRowIndex + 1
-      : targetRowIndex;
+    // SAP CALM specific: Data starts at row 6 (index 5) after the header structure
+    const actualTargetRowIndex = rule.targetSheetName === "Test Cases"
+      ? 5 + rowOffset // Row 6 = index 5
+      : rule.targetStartRow - 1 + rowOffset;
 
     rule.mappings.forEach((mapping) => {
       let value = resolveMappedValue({
