@@ -248,34 +248,24 @@ function executeMapping({
     clearTargetRows(targetSheet, rule.targetStartRow - 1);
   }
 
-  let actualTargetRowIndex = rule.targetStartRow - 1;
-
   mappedRows.forEach((sourceRow, rowOffset) => {
+    const targetRowIndex = rule.targetStartRow - 1 + rowOffset;
+
+    // SAP CALM specific: Skip row 4 (index 3) - it must always be blank
+    const actualTargetRowIndex = rule.targetSheetName === "Test Cases" && targetRowIndex >= 3
+      ? targetRowIndex + 1
+      : targetRowIndex;
+
     rule.mappings.forEach((mapping) => {
-      let value = resolveMappedValue({
+      const value = resolveMappedValue({
         mapping,
         sourceRow,
         sourceExcelRowNumber: sourceHeaderRowIndex + rowOffset + 2,
         convertCountryToIso2: rule.convertCountryToIso2
       });
 
-      // SAP CALM specific: Add # prefix to Test Case Name column (column A, index 0)
-      if (rule.targetSheetName === "Test Cases" && mapping.targetColumnIndex === 0 && value) {
-        const stringValue = String(value);
-        if (!stringValue.startsWith("#") && stringValue.trim() !== "") {
-          value = `# ${stringValue}`;
-        }
-      }
-
       writeCell(targetSheet, actualTargetRowIndex, mapping.targetColumnIndex, value);
     });
-
-    actualTargetRowIndex++;
-
-    // SAP CALM specific: Add blank row after every test case (except the last one)
-    if (rule.targetSheetName === "Test Cases" && rowOffset < mappedRows.length - 1) {
-      actualTargetRowIndex++;
-    }
   });
 
   const base64 = XLSX.write(templateWorkbook, {
