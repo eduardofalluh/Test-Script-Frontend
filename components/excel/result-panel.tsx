@@ -34,18 +34,52 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
   const [hasManualEdits, setHasManualEdits] = React.useState(false);
   const [editedBase64, setEditedBase64] = React.useState<string | null>(null);
 
+  const [downloadHref, setDownloadHref] = React.useState<string | undefined>(undefined);
+
   React.useEffect(() => {
     setEditedBase64(null);
     setHasManualEdits(false);
   }, [result.file?.base64]);
 
+  // Create a proper Blob URL for downloading to prevent file corruption
+  React.useEffect(() => {
+    // Clean up previous URL
+    if (downloadHref) {
+      URL.revokeObjectURL(downloadHref);
+    }
+
+    if (result.file?.base64) {
+      try {
+        // Convert base64 to binary
+        const binaryString = atob(result.file.base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        // Create Blob and URL
+        const blob = new Blob([bytes], { type: result.file.mimeType });
+        const url = URL.createObjectURL(blob);
+        setDownloadHref(url);
+      } catch (error) {
+        console.error("Failed to create download URL:", error);
+        setDownloadHref(undefined);
+      }
+    } else {
+      setDownloadHref(undefined);
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (downloadHref) {
+        URL.revokeObjectURL(downloadHref);
+      }
+    };
+  }, [result.file?.base64, result.file?.mimeType]);
+
   if (result.status === "idle") {
     return null;
   }
-
-  const downloadHref = result.file
-    ? `data:${result.file.mimeType};base64,${result.file.base64}`
-    : undefined;
 
   return (
     <Card>

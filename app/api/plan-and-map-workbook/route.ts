@@ -145,6 +145,11 @@ function buildPlanningPrompt({
     "  ],",
     '  "transformations": { "convertCountryToIso2": true, "clearTargetRowsBeforeMapping": false }',
     "}",
+    "",
+    "CRITICAL: Use EXACT column names from the workbook summaries. Do NOT add asterisks (*), brackets, or symbols to sourceHeader or targetHeader values.",
+    "CORRECT: \"targetHeader\": \"Test Case Name\"",
+    "WRONG: \"targetHeader\": \"Test Case Name*\" or \"Test Case Name (required)\"",
+    "",
     "Use only sheets and headers present in the workbook summaries. The deterministic mapper will execute your plan.",
     "For SAP Cloud ALM Test Script mode, targetSheetName must be \"Test Cases\", targetStartRow must be 2, and transformations.clearTargetRowsBeforeMapping must be true so the sample rows are removed before writing. Use constantValue mappings for SAP defaults such as Test Case Status = In Preparation or Test Case Priority = Medium when the source does not provide those fields.",
     "",
@@ -191,6 +196,20 @@ function extractStructuredMappingSpec(rawResponse: unknown): StructuredMappingSp
   if (!spec.sourceSheetName || !spec.targetSheetName || !Array.isArray(spec.mappings)) {
     throw new Error("AI planner JSON is missing sourceSheetName, targetSheetName, or mappings.");
   }
+
+  // Sanitize column names: strip asterisks and other decorators that the AI might add
+  // to indicate required fields, but which don't exist in the actual Excel headers
+  spec.mappings = spec.mappings.map((mapping) => {
+    const sanitized = { ...mapping };
+    if (sanitized.sourceHeader) {
+      sanitized.sourceHeader = sanitized.sourceHeader.replace(/[*\(\)]/g, '').trim();
+    }
+    if (sanitized.targetHeader) {
+      sanitized.targetHeader = sanitized.targetHeader.replace(/[*\(\)]/g, '').trim();
+    }
+    return sanitized;
+  });
+
   return spec;
 }
 
