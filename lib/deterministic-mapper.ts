@@ -209,7 +209,11 @@ function executeMapping({
 
     // Row 3: # created at with current timestamp
     const now = new Date();
-    const timestamp = \`\${now.getFullYear()}-\${String(now.getMonth() + 1).padStart(2, '0')}-\${String(now.getDate()).padStart(2, '0')}, \${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}\`;
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    const timestamp = `${year}-${month}-${day}, ${timeStr}`;
     targetSheet["A3"] = { t: "s", v: "# created at", w: "# created at", h: "# created at" };
     targetSheet["B3"] = { t: "s", v: timestamp, w: timestamp, h: timestamp };
 
