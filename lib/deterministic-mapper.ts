@@ -190,17 +190,32 @@ function executeMapping({
   const sourceSheet = sourceWorkbook.workbook.Sheets[resolvedSourceSheetName];
   const targetSheet = templateWorkbook.Sheets[resolvedTargetSheetName];
 
-  // SAP CALM specific: Update header in column A to include # symbol
+  // SAP CALM specific: Set up proper CALM export format
   if (rule.targetSheetName === "Test Cases") {
-    const headerCell = targetSheet["A1"];
-    if (headerCell && !String(headerCell.v).startsWith("#")) {
-      headerCell.v = `# ${headerCell.v}`;
-      headerCell.w = `# ${headerCell.w || headerCell.v}`;
-      headerCell.h = `# ${headerCell.h || headerCell.v}`;
-      if (headerCell.r) {
-        headerCell.r = `<t># ${headerCell.v}</t>`;
-      }
-    }
+    // Clear existing content
+    const range = XLSX.utils.decode_range(targetSheet["!ref"] || "A1:M1");
+
+    // Row 1: #
+    targetSheet["A1"] = { t: "s", v: "# ", w: "# ", h: "# " };
+
+    // Row 2: # with warning message
+    targetSheet["A2"] = { t: "s", v: "# ", w: "# ", h: "# " };
+    targetSheet["B2"] = {
+      t: "s",
+      v: "Any changes you make to the values of columns marked with [---] will be ignored.",
+      w: "Any changes you make to the values of columns marked with [---] will be ignored.",
+      h: "Any changes you make to the values of columns marked with [---] will be ignored."
+    };
+
+    // Row 3: # created at with current timestamp
+    const now = new Date();
+    const timestamp = \`\${now.getFullYear()}-\${String(now.getMonth() + 1).padStart(2, '0')}-\${String(now.getDate()).padStart(2, '0')}, \${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}\`;
+    targetSheet["A3"] = { t: "s", v: "# created at", w: "# created at", h: "# created at" };
+    targetSheet["B3"] = { t: "s", v: timestamp, w: timestamp, h: timestamp };
+
+    // Row 4: Blank (already cleared)
+
+    // Row 5 will be the header row - we'll set this up before mapping
   }
 
   const sourceRows = sheetToRows(sourceSheet);
@@ -260,36 +275,53 @@ function executeMapping({
     clearTargetRows(targetSheet, rule.targetStartRow - 1);
   }
 
-  // SAP CALM specific: Copy row 1 (headers) to row 5
+  // SAP CALM specific: Set up row 5 with proper CALM headers
   if (rule.targetSheetName === "Test Cases") {
-    const range = XLSX.utils.decode_range(targetSheet["!ref"] || "A1:M1");
+    // CALM requires specific column order and naming
+    const calmHeaders = [
+      "Test Case GUID",
+      "Test Case Name*",
+      "[Scope GUID]",
+      "[Scope Name]",
+      "[Solution Process GUID]",
+      "[Solution Process Name]",
+      "Test Case Status",
+      "Test Case Priority",
+      "Test Case References",
+      "Test Case Owner",
+      "Tag",
+      "Activity Title",
+      "Activity Target Name",
+      "Activity Target URL",
+      "Action Title",
+      "Action Instructions",
+      "Action Expected Result",
+      "Action Evidence"
+    ];
 
-    // Copy all cells from row 1 to row 5
-    for (let colIndex = range.s.c; colIndex <= range.e.c; colIndex++) {
-      const sourceAddr = XLSX.utils.encode_cell({ r: 0, c: colIndex });
-      const targetAddr = XLSX.utils.encode_cell({ r: 4, c: colIndex }); // Row 5 = index 4
+    // Write headers to row 5
+    calmHeaders.forEach((header, colIndex) => {
+      const cellAddr = XLSX.utils.encode_cell({ r: 4, c: colIndex }); // Row 5 = index 4
+      targetSheet[cellAddr] = {
+        t: "s",
+        v: header,
+        w: header,
+        h: header
+      };
+    });
 
-      if (targetSheet[sourceAddr]) {
-        targetSheet[targetAddr] = { ...targetSheet[sourceAddr] };
-      }
-    }
-
-    // Update range to include row 5
-    if (range.e.r < 4) {
-      range.e.r = 4;
-      targetSheet["!ref"] = XLSX.utils.encode_range(range);
-    }
+    // Update range
+    const range = XLSX.utils.decode_range(targetSheet["!ref"] || "A1:A1");
+    range.e.c = Math.max(range.e.c, calmHeaders.length - 1);
+    range.e.r = Math.max(range.e.r, 4);
+    targetSheet["!ref"] = XLSX.utils.encode_range(range);
   }
 
   mappedRows.forEach((sourceRow, rowOffset) => {
-    const targetRowIndex = rule.targetStartRow - 1 + rowOffset;
-
-    // SAP CALM specific: Skip row 4 (index 3) which is blank, and row 5 (index 4) which is header
-    // Data goes: row 2 (index 1), row 3 (index 2), skip row 4, skip row 5, row 6+ (index 5+)
-    let actualTargetRowIndex = targetRowIndex;
-    if (rule.targetSheetName === "Test Cases" && targetRowIndex >= 3) {
-      actualTargetRowIndex = targetRowIndex + 2; // Skip rows 4 and 5
-    }
+    // SAP CALM specific: Data starts at row 6 (index 5)
+    const actualTargetRowIndex = rule.targetSheetName === "Test Cases"
+      ? 5 + rowOffset // Row 6 = index 5
+      : rule.targetStartRow - 1 + rowOffset;
 
     rule.mappings.forEach((mapping) => {
       let value = resolveMappedValue({
@@ -299,21 +331,42 @@ function executeMapping({
         convertCountryToIso2: rule.convertCountryToIso2
       });
 
-      // SAP CALM specific: Add # prefix ONLY to rows 2 and 3 (indices 1 and 2)
-      // Row 5 already has # from being copied from row 1
-      // Rows 6+ should NOT have # prefix
-      if (rule.targetSheetName === "Test Cases" &&
-          mapping.targetColumnIndex === 0 &&
-          value &&
-          actualTargetRowIndex >= 1 &&
-          actualTargetRowIndex <= 2) {
-        const stringValue = String(value).trim();
-        if (stringValue !== "" && !stringValue.startsWith("#")) {
-          value = `# ${stringValue}`;
+      // SAP CALM specific: Map to correct column indices
+      // The mapping targetColumnIndex needs to be adjusted for CALM column structure
+      // Test Case Name* is now at index 1 (column B) instead of index 0
+      let targetColIndex = mapping.targetColumnIndex;
+      if (rule.targetSheetName === "Test Cases") {
+        // Shift regular columns to account for GUID columns at the start
+        if (mapping.targetLabel === "Test Case Name") {
+          targetColIndex = 1; // Column B: Test Case Name*
+        } else if (mapping.targetLabel === "Test Case Status") {
+          targetColIndex = 6;
+        } else if (mapping.targetLabel === "Test Case Priority") {
+          targetColIndex = 7;
+        } else if (mapping.targetLabel === "Test Case References") {
+          targetColIndex = 8;
+        } else if (mapping.targetLabel === "Test Case Owner") {
+          targetColIndex = 9;
+        } else if (mapping.targetLabel === "Tag") {
+          targetColIndex = 10;
+        } else if (mapping.targetLabel === "Activity Title") {
+          targetColIndex = 11;
+        } else if (mapping.targetLabel === "Activity Target Name") {
+          targetColIndex = 12;
+        } else if (mapping.targetLabel === "Activity Target URL") {
+          targetColIndex = 13;
+        } else if (mapping.targetLabel === "Action Title") {
+          targetColIndex = 14;
+        } else if (mapping.targetLabel === "Action Instructions") {
+          targetColIndex = 15;
+        } else if (mapping.targetLabel === "Action Expected Result") {
+          targetColIndex = 16;
+        } else if (mapping.targetLabel === "Action Evidence") {
+          targetColIndex = 17;
         }
       }
 
-      writeCell(targetSheet, actualTargetRowIndex, mapping.targetColumnIndex, value);
+      writeCell(targetSheet, actualTargetRowIndex, targetColIndex, value);
     });
   });
 
