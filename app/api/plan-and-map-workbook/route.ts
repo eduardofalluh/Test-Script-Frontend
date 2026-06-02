@@ -185,19 +185,35 @@ function summarizeWorkbook(input: WorkbookInput) {
     sheets: workbook.SheetNames.map((sheetName) => {
       const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
         header: 1,
-        blankrows: false,
+        blankrows: true,
         defval: ""
       }) as unknown[][];
-      const headerRowIndex = rows.findIndex((row) => row.filter((cell) => String(cell || "").trim() !== "").length >= 2);
 
-      // For SAP CALM template, header is always row 0
-      const actualHeaderIndex = sheetName === "Test Cases" ? 0 : Math.max(headerRowIndex, 0);
+      // Detect if this is a CALM export file (has "# " in A1 and "# created at" in A3)
+      const isCALMExport = sheetName === "Test Cases" &&
+        rows[0]?.[0] === "# " &&
+        String(rows[2]?.[0] || "").startsWith("# created at");
+
+      let actualHeaderIndex;
+      let dataStartIndex;
+
+      if (isCALMExport) {
+        // CALM export: headers at row 5 (index 4), data starts at row 6 (index 5)
+        actualHeaderIndex = 4;
+        dataStartIndex = 5;
+      } else {
+        // Regular file: detect header row
+        const headerRowIndex = rows.findIndex((row) => row.filter((cell) => String(cell || "").trim() !== "").length >= 2);
+        actualHeaderIndex = sheetName === "Test Cases" ? 0 : Math.max(headerRowIndex, 0);
+        dataStartIndex = actualHeaderIndex + 1;
+      }
 
       return {
         sheetName,
         rowCount: rows.length,
         likelyHeaders: rows[actualHeaderIndex] ?? [],
-        sampleRows: rows.slice(actualHeaderIndex + 1, actualHeaderIndex + 6)
+        sampleRows: rows.slice(dataStartIndex, dataStartIndex + 5),
+        isCALMExport
       };
     })
   };

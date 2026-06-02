@@ -190,6 +190,12 @@ function executeMapping({
   const sourceSheet = sourceWorkbook.workbook.Sheets[resolvedSourceSheetName];
   const targetSheet = templateWorkbook.Sheets[resolvedTargetSheetName];
 
+  // Detect if source is a CALM export file
+  const sourceRows = sheetToRows(sourceSheet);
+  const isSourceCALMExport = resolvedTargetSheetName === "Test Cases" &&
+    sourceRows[0]?.[0] === "# " &&
+    String(sourceRows[2]?.[0] || "").startsWith("# created at");
+
   // SAP CALM specific: Set up proper CALM export format
   if (rule.targetSheetName === "Test Cases") {
     // Clear existing content
@@ -222,9 +228,21 @@ function executeMapping({
     // Row 5 will be the header row - we'll set this up before mapping
   }
 
-  const sourceRows = sheetToRows(sourceSheet);
-  const sourceHeaderRowIndex = detectHeaderRowIndex(sourceRows);
-  const sourceDataRows = sourceRows.slice(sourceHeaderRowIndex + 1);
+  // Determine header and data start rows based on source file type
+  let sourceHeaderRowIndex;
+  let dataStartIndex;
+
+  if (isSourceCALMExport) {
+    // CALM export: headers at row 5 (index 4), data starts at row 6 (index 5)
+    sourceHeaderRowIndex = 4;
+    dataStartIndex = 5;
+  } else {
+    // Regular file: detect header row
+    sourceHeaderRowIndex = detectHeaderRowIndex(sourceRows);
+    dataStartIndex = sourceHeaderRowIndex + 1;
+  }
+
+  const sourceDataRows = sourceRows.slice(dataStartIndex);
 
   // Filter out empty rows and header-like rows (rows with mostly text that matches headers)
   const mappedRows = sourceDataRows.filter((row) => {
