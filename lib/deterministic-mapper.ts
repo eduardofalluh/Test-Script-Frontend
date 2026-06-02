@@ -299,8 +299,14 @@ function executeMapping({
         convertCountryToIso2: rule.convertCountryToIso2
       });
 
-      // SAP CALM specific: Add # prefix to ALL data values in Test Case Name column (column A, index 0)
-      if (rule.targetSheetName === "Test Cases" && mapping.targetColumnIndex === 0 && value) {
+      // SAP CALM specific: Add # prefix ONLY to rows 2 and 3 (indices 1 and 2)
+      // Row 5 already has # from being copied from row 1
+      // Rows 6+ should NOT have # prefix
+      if (rule.targetSheetName === "Test Cases" &&
+          mapping.targetColumnIndex === 0 &&
+          value &&
+          actualTargetRowIndex >= 1 &&
+          actualTargetRowIndex <= 2) {
         const stringValue = String(value).trim();
         if (stringValue !== "" && !stringValue.startsWith("#")) {
           value = `# ${stringValue}`;
