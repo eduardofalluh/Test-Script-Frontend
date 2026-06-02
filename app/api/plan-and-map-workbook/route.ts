@@ -54,10 +54,17 @@ export async function POST(request: Request) {
       }))
     );
 
+    const templateSummary = summarizeWorkbook(templateInput);
+    const sourceSummaries = sourceInputs.map(summarizeWorkbook);
+
+    // Log for debugging
+    console.log('[SAP CALM Debug] Template summary:', JSON.stringify(templateSummary, null, 2));
+    console.log('[SAP CALM Debug] Source summaries:', JSON.stringify(sourceSummaries, null, 2));
+
     const planningPrompt = buildPlanningPrompt({
       userPrompt: prompt,
-      templateSummary: summarizeWorkbook(templateInput),
-      sourceSummaries: sourceInputs.map(summarizeWorkbook)
+      templateSummary,
+      sourceSummaries
     });
 
     const response = await fetchWithTimeout(
@@ -165,7 +172,7 @@ function buildPlanningPrompt({
 }
 
 function summarizeWorkbook(input: WorkbookInput) {
-  const workbook = XLSX.read(input.buffer, { type: "buffer", cellDates: true });
+  const workbook = XLSX.read(input.buffer, { type: "buffer", cellDates: true, cellStyles: true });
   return {
     filename: input.filename,
     sheets: workbook.SheetNames.map((sheetName) => {
@@ -175,11 +182,15 @@ function summarizeWorkbook(input: WorkbookInput) {
         defval: ""
       }) as unknown[][];
       const headerRowIndex = rows.findIndex((row) => row.filter((cell) => String(cell || "").trim() !== "").length >= 2);
+
+      // For SAP CALM template, header is always row 0
+      const actualHeaderIndex = sheetName === "Test Cases" ? 0 : Math.max(headerRowIndex, 0);
+
       return {
         sheetName,
         rowCount: rows.length,
-        likelyHeaders: rows[Math.max(headerRowIndex, 0)] ?? [],
-        sampleRows: rows.slice(Math.max(headerRowIndex, 0) + 1, Math.max(headerRowIndex, 0) + 6)
+        likelyHeaders: rows[actualHeaderIndex] ?? [],
+        sampleRows: rows.slice(actualHeaderIndex + 1, actualHeaderIndex + 6)
       };
     })
   };
