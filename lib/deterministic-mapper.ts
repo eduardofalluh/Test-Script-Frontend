@@ -189,6 +189,20 @@ function executeMapping({
 
   const sourceSheet = sourceWorkbook.workbook.Sheets[resolvedSourceSheetName];
   const targetSheet = templateWorkbook.Sheets[resolvedTargetSheetName];
+
+  // SAP CALM specific: Update header in column A to include # symbol
+  if (rule.targetSheetName === "Test Cases") {
+    const headerCell = targetSheet["A1"];
+    if (headerCell && !String(headerCell.v).startsWith("#")) {
+      headerCell.v = `# ${headerCell.v}`;
+      headerCell.w = `# ${headerCell.w || headerCell.v}`;
+      headerCell.h = `# ${headerCell.h || headerCell.v}`;
+      if (headerCell.r) {
+        headerCell.r = `<t># ${headerCell.v}</t>`;
+      }
+    }
+  }
+
   const sourceRows = sheetToRows(sourceSheet);
   const sourceHeaderRowIndex = detectHeaderRowIndex(sourceRows);
   const sourceDataRows = sourceRows.slice(sourceHeaderRowIndex + 1);
@@ -202,13 +216,27 @@ function executeMapping({
 
     // For SAP CALM: Skip rows that look like header rows (contain asterisks, brackets, or all-caps)
     if (rule.targetSheetName === "Test Cases") {
-      const firstCell = String(row[0] || "");
-      // Skip if first cell contains decorators like asterisks or brackets
-      if (firstCell.includes("*") || (firstCell.startsWith("[") && firstCell.endsWith("]"))) {
+      const firstCell = String(row[0] || "").trim();
+
+      // Skip timestamp rows (contains date/time pattern like "6/2/2026, 8:41:41")
+      if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(firstCell) || /\d{1,2}:\d{1,2}/.test(firstCell)) {
+        console.log(`[CALM Filter] Skipping timestamp row: ${firstCell}`);
         return false;
       }
-      // Skip timestamp rows (contains date/time pattern)
-      if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(firstCell)) {
+
+      // Skip if first cell contains decorators like asterisks or square brackets
+      if (firstCell.includes("*") || /^\[.*\]$/.test(firstCell)) {
+        console.log(`[CALM Filter] Skipping header-like row: ${firstCell}`);
+        return false;
+      }
+
+      // Skip rows where multiple cells contain asterisks or brackets (likely a header row)
+      const cellsWithSymbols = row.filter((cell) => {
+        const str = String(cell || "");
+        return str.includes("*") || /^\[.*\]$/.test(str);
+      });
+      if (cellsWithSymbols.length >= 3) {
+        console.log(`[CALM Filter] Skipping multi-symbol header row`);
         return false;
       }
     }
@@ -220,17 +248,34 @@ function executeMapping({
     clearTargetRows(targetSheet, rule.targetStartRow - 1);
   }
 
+  let actualTargetRowIndex = rule.targetStartRow - 1;
+
   mappedRows.forEach((sourceRow, rowOffset) => {
-    const targetRowIndex = rule.targetStartRow - 1 + rowOffset;
     rule.mappings.forEach((mapping) => {
-      const value = resolveMappedValue({
+      let value = resolveMappedValue({
         mapping,
         sourceRow,
         sourceExcelRowNumber: sourceHeaderRowIndex + rowOffset + 2,
         convertCountryToIso2: rule.convertCountryToIso2
       });
-      writeCell(targetSheet, targetRowIndex, mapping.targetColumnIndex, value);
+
+      // SAP CALM specific: Add # prefix to Test Case Name column (column A, index 0)
+      if (rule.targetSheetName === "Test Cases" && mapping.targetColumnIndex === 0 && value) {
+        const stringValue = String(value);
+        if (!stringValue.startsWith("#") && stringValue.trim() !== "") {
+          value = `# ${stringValue}`;
+        }
+      }
+
+      writeCell(targetSheet, actualTargetRowIndex, mapping.targetColumnIndex, value);
     });
+
+    actualTargetRowIndex++;
+
+    // SAP CALM specific: Add blank row after every test case (except the last one)
+    if (rule.targetSheetName === "Test Cases" && rowOffset < mappedRows.length - 1) {
+      actualTargetRowIndex++;
+    }
   });
 
   const base64 = XLSX.write(templateWorkbook, {
