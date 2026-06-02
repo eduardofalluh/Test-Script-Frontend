@@ -84,11 +84,27 @@ export function mapWorkbookDeterministically(input: DeterministicMappingInput) {
     throw new Error("At least one source workbook is required for deterministic mapping.");
   }
 
-  const templateWorkbook = XLSX.read(input.template.buffer, { type: "buffer", cellDates: true });
-  const sourceWorkbooks = input.sources.map((source) => ({
-    filename: source.filename,
-    workbook: XLSX.read(source.buffer, { type: "buffer", cellDates: true })
-  }));
+  let templateWorkbook: XLSX.WorkBook;
+  try {
+    templateWorkbook = XLSX.read(input.template.buffer, { type: "buffer", cellDates: true, cellStyles: true });
+    if (!templateWorkbook.SheetNames || templateWorkbook.SheetNames.length === 0) {
+      throw new Error("Template workbook has no sheets. Please upload a valid Excel file.");
+    }
+  } catch (error) {
+    throw new Error(`Failed to read template workbook: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+
+  const sourceWorkbooks = input.sources.map((source) => {
+    try {
+      const workbook = XLSX.read(source.buffer, { type: "buffer", cellDates: true });
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error(`Source file "${source.filename}" has no sheets.`);
+      }
+      return { filename: source.filename, workbook };
+    } catch (error) {
+      throw new Error(`Failed to read source file "${source.filename}": ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  });
 
   const rule = parseMappingRule(input.prompt, templateWorkbook, sourceWorkbooks);
   return executeMapping({
@@ -106,11 +122,27 @@ export function mapWorkbookFromStructuredSpec(input: DeterministicMappingInput, 
     throw new Error("At least one source workbook is required for deterministic mapping.");
   }
 
-  const templateWorkbook = XLSX.read(input.template.buffer, { type: "buffer", cellDates: true });
-  const sourceWorkbooks = input.sources.map((source) => ({
-    filename: source.filename,
-    workbook: XLSX.read(source.buffer, { type: "buffer", cellDates: true })
-  }));
+  let templateWorkbook: XLSX.WorkBook;
+  try {
+    templateWorkbook = XLSX.read(input.template.buffer, { type: "buffer", cellDates: true, cellStyles: true });
+    if (!templateWorkbook.SheetNames || templateWorkbook.SheetNames.length === 0) {
+      throw new Error("Template workbook has no sheets. Please upload a valid Excel file.");
+    }
+  } catch (error) {
+    throw new Error(`Failed to read template workbook: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+
+  const sourceWorkbooks = input.sources.map((source) => {
+    try {
+      const workbook = XLSX.read(source.buffer, { type: "buffer", cellDates: true });
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error(`Source file "${source.filename}" has no sheets.`);
+      }
+      return { filename: source.filename, workbook };
+    } catch (error) {
+      throw new Error(`Failed to read source file "${source.filename}": ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  });
   const rule = structuredSpecToMappingRule(spec, templateWorkbook, sourceWorkbooks);
 
   return executeMapping({
@@ -181,7 +213,8 @@ function executeMapping({
 
   const base64 = XLSX.write(templateWorkbook, {
     type: "base64",
-    bookType: "xlsx"
+    bookType: "xlsx",
+    cellStyles: true
   }) as string;
 
   const filename = `populated-${sanitizeFilename(input.template.filename).replace(/\.(xlsx|xlsm)$/i, "")}.xlsx`;
@@ -267,8 +300,19 @@ function resolveStructuredColumnMapping(
   const targetColumnIndex = mapping.targetColumn
     ? columnNameToIndex(mapping.targetColumn)
     : findHeaderIndex(targetHeaders, mapping.targetHeader ?? "");
+
   if (targetColumnIndex < 0) {
-    throw new Error(`AI mapping plan target column could not be resolved: ${mapping.targetColumn ?? mapping.targetHeader ?? "unknown"}`);
+    const requestedName = mapping.targetColumn ?? mapping.targetHeader ?? "unknown";
+    const availableHeaders = targetHeaders
+      .map((h, i) => `${String(h)} (column ${XLSX.utils.encode_col(i)})`)
+      .slice(0, 10)
+      .join(", ");
+    throw new Error(
+      `AI mapping plan target column could not be resolved: ${requestedName}. ` +
+      `Available target columns: ${availableHeaders}. ` +
+      `This usually means the AI added symbols (* or parentheses) to the column name. ` +
+      `Try re-prompting with the exact error from CALM.`
+    );
   }
 
   if (mapping.generated) {
@@ -294,8 +338,18 @@ function resolveStructuredColumnMapping(
   const sourceColumnIndex = mapping.sourceColumn
     ? columnNameToIndex(mapping.sourceColumn)
     : findHeaderIndex(sourceHeaders, mapping.sourceHeader ?? "");
+
   if (sourceColumnIndex < 0) {
-    throw new Error(`AI mapping plan source column could not be resolved: ${mapping.sourceColumn ?? mapping.sourceHeader ?? "unknown"}`);
+    const requestedName = mapping.sourceColumn ?? mapping.sourceHeader ?? "unknown";
+    const availableHeaders = sourceHeaders
+      .map((h, i) => `${String(h)} (column ${XLSX.utils.encode_col(i)})`)
+      .slice(0, 10)
+      .join(", ");
+    throw new Error(
+      `AI mapping plan source column could not be resolved: ${requestedName}. ` +
+      `Available source columns: ${availableHeaders}. ` +
+      `Check your source file has this column.`
+    );
   }
 
   return {

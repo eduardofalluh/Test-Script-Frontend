@@ -117,11 +117,50 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
           </Alert>
         ) : null}
 
+        {/* Quick Re-prompt Section - Always visible when there's a result */}
+        {result.status === "success" || result.status === "error" ? (
+          <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <WandSparkles className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold text-sm">Need changes? Re-prompt here</h3>
+            </div>
+            {hasManualEdits ? (
+              <Alert className="mb-3">
+                <AlertDescription className="text-xs">
+                  You have manual edits in Easy View. The AI will use your edited workbook as the starting point.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="space-y-3">
+              <Textarea
+                value={refinement}
+                onChange={(event) => setRefinement(event.target.value)}
+                rows={4}
+                placeholder="Paste CALM validation errors here or describe what needs to change. Example: 'Activity Target URL column has invalid values. URLs must follow format: https://sap.com. Affected rows: 11, 13, 14, 15.'"
+                className="resize-none text-sm"
+              />
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  disabled={result.status === "processing" || refinement.trim().length === 0}
+                  onClick={() => {
+                    onRefine(refinement, editedBase64);
+                    setRefinement("");
+                  }}
+                  className="gap-2"
+                >
+                  <WandSparkles className="h-4 w-4" />
+                  Generate Fixed Version
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <Tabs defaultValue="workbook">
           <TabsList>
             <TabsTrigger value="workbook">Easy View</TabsTrigger>
             <TabsTrigger value="preview">Preview</TabsTrigger>
-            <TabsTrigger value="ai">Revise</TabsTrigger>
             <TabsTrigger value="response">Run Response</TabsTrigger>
             <TabsTrigger value="download">Download</TabsTrigger>
           </TabsList>
@@ -147,42 +186,6 @@ export function ResultPanel({ result, onCopy, onRefine }: ResultPanelProps) {
                 No populated workbook was detected in the agent response yet.
               </div>
             )}
-          </TabsContent>
-          <TabsContent value="ai">
-            <div className="space-y-4">
-              {hasManualEdits ? (
-                <Alert>
-                  <AlertDescription>
-                    You have manual edits in Easy View. The AI revision will use your edited workbook as the starting point.
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-              <div className="space-y-2">
-                <label htmlFor="ai-refinement" className="text-sm font-medium">
-                  Tell Excel Mapper what to change
-                </label>
-                <Textarea
-                  id="ai-refinement"
-                  value={refinement}
-                  onChange={(event) => setRefinement(event.target.value)}
-                  rows={7}
-                  placeholder="Example: Keep the customer mapping, but change the target start row to 8 and format the date columns as YYYY-MM-DD."
-                />
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  type="button"
-                  disabled={result.status === "processing" || refinement.trim().length === 0}
-                  onClick={() => {
-                    onRefine(refinement, editedBase64);
-                    setRefinement("");
-                  }}
-                >
-                  <WandSparkles className="h-4 w-4" />
-                  Apply Revision
-                </Button>
-              </div>
-            </div>
           </TabsContent>
           <TabsContent value="response">
             <div className="mb-3 flex justify-end">
