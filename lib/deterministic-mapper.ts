@@ -196,7 +196,12 @@ function executeMapping({
     sourceRows[0]?.[0] === "# " &&
     String(sourceRows[2]?.[0] || "").startsWith("# created at");
 
-  // SAP CALM specific: Set up proper CALM export format
+  // Clear target rows FIRST (before setting up CALM structure)
+  if (rule.clearTargetRowsBeforeMapping) {
+    clearTargetRows(targetSheet, rule.targetStartRow - 1);
+  }
+
+  // SAP CALM specific: Set up proper CALM export format (AFTER clearing)
   if (rule.targetSheetName === "Test Cases") {
     // Clear existing content
     const range = XLSX.utils.decode_range(targetSheet["!ref"] || "A1:M1");
@@ -292,10 +297,6 @@ function executeMapping({
 
     return true;
   });
-
-  if (rule.clearTargetRowsBeforeMapping) {
-    clearTargetRows(targetSheet, rule.targetStartRow - 1);
-  }
 
   // SAP CALM specific: Set up row 5 with proper CALM headers
   if (rule.targetSheetName === "Test Cases") {
