@@ -300,26 +300,29 @@ function executeMapping({
 
   // SAP CALM specific: Set up row 5 with proper CALM headers
   if (rule.targetSheetName === "Test Cases") {
-    // CALM requires specific column order and naming
+    // CALM requires specific column order and naming (from actual CALM export)
     const calmHeaders = [
-      "Test Case GUID",
-      "Test Case Name*",
-      "[Scope GUID]",
-      "[Scope Name]",
-      "[Solution Process GUID]",
-      "[Solution Process Name]",
-      "Test Case Status",
-      "Test Case Priority",
-      "Test Case References",
-      "Test Case Owner",
-      "Tag",
-      "Activity Title",
-      "Activity Target Name",
-      "Activity Target URL",
-      "Action Title",
-      "Action Instructions",
-      "Action Expected Result",
-      "Action Evidence"
+      "Test Case GUID",                           // A (0)
+      "Test Case Name*",                          // B (1)
+      "[Scope GUID]",                             // C (2)
+      "[Scope Name]",                             // D (3)
+      "[Solution Process GUID]",                  // E (4)
+      "[Solution Process Name]",                  // F (5)
+      "[Solution Process Flow GUID]",             // G (6)
+      "[Solution Process Flow Name]",             // H (7)
+      "[Solution Process Flow Diagram GUID]",     // I (8)
+      "[Solution Process Flow Diagram Name]",     // J (9)
+      "[Test Case Priority]",                     // K (10)
+      "[Test Case Owner]",                        // L (11)
+      "Test Case Status",                         // M (12)
+      "Activity GUID",                            // N (13)
+      "Activity Title*",                          // O (14)
+      "Activity Target Name",                     // P (15)
+      "Activity Target URL",                      // Q (16)
+      "Action GUID",                              // R (17)
+      "Action Title*",                            // S (18)
+      "Action Instructions*",                     // T (19)
+      "Action Expected Result"                    // U (20)
     ];
 
     // Write headers to row 5
@@ -354,39 +357,32 @@ function executeMapping({
         convertCountryToIso2: rule.convertCountryToIso2
       });
 
-      // SAP CALM specific: Map to correct column indices
-      // The mapping targetColumnIndex needs to be adjusted for CALM column structure
-      // Test Case Name* is now at index 1 (column B) instead of index 0
+      // SAP CALM specific: Map to correct column indices based on actual CALM export format
       let targetColIndex = mapping.targetColumnIndex;
       if (rule.targetSheetName === "Test Cases") {
-        // Shift regular columns to account for GUID columns at the start
-        if (mapping.targetLabel === "Test Case Name") {
-          targetColIndex = 1; // Column B: Test Case Name*
+        // Map to CALM column positions (many columns are [read-only] with brackets)
+        if (mapping.targetLabel === "Test Case Name" || mapping.targetLabel === "Test Case Name*") {
+          targetColIndex = 1; // B: Test Case Name*
+        } else if (mapping.targetLabel === "Test Case Priority" || mapping.targetLabel === "[Test Case Priority]") {
+          targetColIndex = 10; // K: [Test Case Priority]
+        } else if (mapping.targetLabel === "Test Case Owner" || mapping.targetLabel === "[Test Case Owner]") {
+          targetColIndex = 11; // L: [Test Case Owner]
         } else if (mapping.targetLabel === "Test Case Status") {
-          targetColIndex = 6;
-        } else if (mapping.targetLabel === "Test Case Priority") {
-          targetColIndex = 7;
-        } else if (mapping.targetLabel === "Test Case References") {
-          targetColIndex = 8;
-        } else if (mapping.targetLabel === "Test Case Owner") {
-          targetColIndex = 9;
-        } else if (mapping.targetLabel === "Tag") {
-          targetColIndex = 10;
-        } else if (mapping.targetLabel === "Activity Title") {
-          targetColIndex = 11;
+          targetColIndex = 12; // M: Test Case Status
+        } else if (mapping.targetLabel === "Activity Title" || mapping.targetLabel === "Activity Title*") {
+          targetColIndex = 14; // O: Activity Title*
         } else if (mapping.targetLabel === "Activity Target Name") {
-          targetColIndex = 12;
+          targetColIndex = 15; // P: Activity Target Name
         } else if (mapping.targetLabel === "Activity Target URL") {
-          targetColIndex = 13;
-        } else if (mapping.targetLabel === "Action Title") {
-          targetColIndex = 14;
-        } else if (mapping.targetLabel === "Action Instructions") {
-          targetColIndex = 15;
+          targetColIndex = 16; // Q: Activity Target URL
+        } else if (mapping.targetLabel === "Action Title" || mapping.targetLabel === "Action Title*") {
+          targetColIndex = 18; // S: Action Title*
+        } else if (mapping.targetLabel === "Action Instructions" || mapping.targetLabel === "Action Instructions*") {
+          targetColIndex = 19; // T: Action Instructions*
         } else if (mapping.targetLabel === "Action Expected Result") {
-          targetColIndex = 16;
-        } else if (mapping.targetLabel === "Action Evidence") {
-          targetColIndex = 17;
+          targetColIndex = 20; // U: Action Expected Result
         }
+        // Note: GUID columns (A, C-J, N, R) are left empty - CALM will auto-generate them
       }
 
       writeCell(targetSheet, actualTargetRowIndex, targetColIndex, value);
