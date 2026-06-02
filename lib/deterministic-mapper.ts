@@ -260,6 +260,34 @@ function executeMapping({
     clearTargetRows(targetSheet, rule.targetStartRow - 1);
   }
 
+  // SAP CALM specific: Add header row at row 5 (index 4) with column titles
+  if (rule.targetSheetName === "Test Cases") {
+    const headerRow = targetSheet["1"]; // Get row 1 cells
+    const range = XLSX.utils.decode_range(targetSheet["!ref"] || "A1:A1");
+
+    // Copy headers from row 1 to row 5
+    for (let colIndex = range.s.c; colIndex <= range.e.c; colIndex++) {
+      const sourceCell = targetSheet[XLSX.utils.encode_cell({ r: 0, c: colIndex })];
+      if (sourceCell) {
+        const targetCellAddr = XLSX.utils.encode_cell({ r: 4, c: colIndex }); // Row 5 = index 4
+        targetSheet[targetCellAddr] = {
+          ...sourceCell,
+          v: sourceCell.v,
+          t: sourceCell.t,
+          w: sourceCell.w,
+          h: sourceCell.h,
+          s: sourceCell.s
+        };
+      }
+    }
+
+    // Update range to include row 5
+    if (range.e.r < 4) {
+      range.e.r = 4;
+      targetSheet["!ref"] = XLSX.utils.encode_range(range);
+    }
+  }
+
   mappedRows.forEach((sourceRow, rowOffset) => {
     const targetRowIndex = rule.targetStartRow - 1 + rowOffset;
 
